@@ -63,6 +63,7 @@ import {
 	isPositiveInt,
 	isPromoted,
 	memoizedIsPromoted,
+	MINIMAL_ANCHOR_PROMPT,
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
 	resolveBootstrap,
@@ -372,7 +373,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("minimal", {
 		description:
-			"Anchor the next request: DSH minimal persona opens the context with bash/read only; omp's full system prompt and catalog return after the first exchange",
+			"Send the anchored turn: DSH minimal persona opens the context with bash/read only; omp's full system prompt and catalog return after this turn",
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
@@ -380,15 +381,33 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
 				return;
 			}
+			const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+				ctx.sessionManager.getBranch(),
+			);
+			if (promoted) {
+				logger.info(
+					`[${EXT_NAME}] /minimal: no-op - session ${sid} already promoted`,
+				);
+				ctx.ui.notify(
+					"[anchored-tools] /minimal: session already promoted (full catalog); nothing to anchor",
+					"info",
+				);
+				return;
+			}
 			armed.add(sid);
 			logger.info(
-				`[${EXT_NAME}] /minimal: armed session ${sid} at ${new Date().toISOString()} ` +
-					`(one-shot, consumed by the next before_agent_start for this session)`,
+				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchored turn`,
 			);
 			ctx.ui.notify(
-				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); omp prompt returns after the first exchange.",
+				"[anchored-tools] /minimal: sending the anchored turn (minimal persona + bash/read); the full omp prompt returns after this turn.",
 				"info",
 			);
+			// Send the anchored turn as a real user prompt: starts a turn when
+			// idle. before_agent_start consumes the arm (explicit path) and
+			// swaps the persona + narrows tools for this request; the turn's
+			// own assistant message promotes, so the next input (the task)
+			// runs under the full omp environment.
+			pi.sendUserMessage(MINIMAL_ANCHOR_PROMPT);
 		},
 	});
 

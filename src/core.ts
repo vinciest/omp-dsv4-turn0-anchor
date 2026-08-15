@@ -228,6 +228,9 @@ export function filterTools(
 export const MINIMAL_SYSTEM_PROMPT =
 	"You are a helpful software engineer assistant.";
 
+/** Replacement input: a real user message that produces the anchored turn. */
+export const MINIMAL_ANCHOR_PROMPT = `Anchored bootstrap turn (DSH minimal). You are a helpful software engineer assistant. State the working plan directly, opening with "We need ...", with no clarifying questions and no meta-commentary. Explore the project context with bash and read only. Keep the reply short: the plan plus the first exploration step.`;
+
 export interface SystemPromptRewrite {
 	/** True when the payload was modified. */
 	changed: boolean;

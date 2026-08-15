@@ -56,6 +56,7 @@ import {
 	isPositiveInt,
 	isPromoted,
 	memoizedIsPromoted,
+	MINIMAL_ANCHOR_PROMPT,
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
 	rewriteSystemPrompt,
@@ -270,7 +271,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("minimal", {
 		description:
-			"Anchor the next request: DSH minimal persona opens the context with bash/read only; pi's full system prompt and catalog return after the first exchange",
+			"Send the anchored turn: DSH minimal persona opens the context with bash/read only; pi's full system prompt and catalog return after this turn",
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
@@ -278,15 +279,32 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
 				return;
 			}
+			const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+				ctx.sessionManager.buildContextEntries(),
+			);
+			if (promoted) {
+				console.log(
+					`[${EXT_NAME}] /minimal: no-op - session ${sid} already promoted`,
+				);
+				ctx.ui.notify(
+					"[anchored-tools] /minimal: session already promoted (full catalog); nothing to anchor",
+					"info",
+				);
+				return;
+			}
 			armed.add(sid);
 			console.log(
-				`[${EXT_NAME}] /minimal: armed session ${sid} at ${new Date().toISOString()} ` +
-					`(one-shot, consumed by the next before_provider_request for this session)`,
+				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchored turn`,
 			);
 			ctx.ui.notify(
-				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); pi prompt returns after the first exchange.",
+				"[anchored-tools] /minimal: sending the anchored turn (minimal persona + bash/read); the full pi prompt returns after this turn.",
 				"info",
 			);
+			// Send the anchored turn as a real user prompt: starts a turn when
+			// idle. before_provider_request consumes the arm (explicit path);
+			// the turn's own assistant message promotes, so the next input
+			// (the task) runs under the full environment.
+			pi.sendUserMessage(MINIMAL_ANCHOR_PROMPT);
 		},
 	});
 
