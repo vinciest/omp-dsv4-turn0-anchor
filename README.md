@@ -1,5 +1,7 @@
 # omp-dsv4-turn0-anchor
 
+English | [中文](README.zh-CN.md)
+
 Fork of the `omp-pi-anchored-standard` extension (`anchored-tools`) for **omp** (Oh My Pi) and **pi** (pi-coding-agent), carrying the **validated bootstrap-only persona fix** for DeepSeek V4 Flash/Pro and a trimmed, convention-over-configuration setting surface.
 
 The extension anchors a target model's **first request** to the same turn-0 scaffold the model was trained against (DeepSeek Harness `minimal` preset), then hands control back to the host:
