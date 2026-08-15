@@ -41,3 +41,10 @@ Checklist for each new upstream commit:
 | Date | Upstream range | Verdict |
 | --- | --- | --- |
 | 2026-08-15 | `973ca91..4c47c8c` (v0.4.2) | Do not merge. Task routing added then defaulted off; permanent-persona model unchanged. |
+| 2026-08-15 | `4c47c8c..2e959a0` (v0.7.0) | Reviewed. Adopted: none (bootstrap-pair `bash`/`edit` tested under the swap, tied 4/4 vs `bash`/`read` - kept `bash`/`read` per the validated fix pattern and the `/minimal` design). Skipped: `taskRouting` (still default-off, still permanent-persona machinery), strip-context message rebuild (`d204cd5` - our swap already drops system-prompt-injected context; message-level strip untested here), post-promotion low-injection (xiaobright `67c0ee3` - future), `whoami` preset (xiaobright `250889f`). |
+
+## What upstream learned that we use
+
+- **Real Minimal tool schema** (`xiaobright/dsh-anchored-standard` `a1e1c1d`, Aurzex `aa8f545`): persistent `bash` + `str_replace_editor` (host-side equivalent `edit`) measured 5/5 `We need` at adapter-default maxTokens, standard-family schemas 11/11 fail. Re-tested under our swap: `bash`/`edit` 4/4 vs `bash`/`read` 4/4 - the schema difference does not transfer once the persona swap is present, so `BOOTSTRAP_TOOLS` stays `["bash", "read"]`.
+- **First-request context stripping** (Aurzex `d204cd5`, port of upstream `suppressedContextSources` / issue #11): request 1 rebuilt to `[system(DSH minimal), last user]`. Independently validates our measured interference (9KB skill catalog flips `We need` 81% -> 0%). Our swap already drops system-prompt-injected context (AGENTS.md digest, skill catalog); message-level strip remains untested here.
+- **Promote semantics** (dsh README): dsh "Keeps the Minimal complete system prompt" - its promote is purely additive (full catalog + injected context return from request #2 on; no host prompt exists to restore). Aurzex keeps the persona permanent ("only the tool catalog promotes"). This fork's bootstrap-only persona + the planned opt-in `/minimal` (input0 anchor, omp prompt returns in the input0/input1 window) are the omp-side adaptation.

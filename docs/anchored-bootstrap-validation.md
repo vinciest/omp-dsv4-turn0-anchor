@@ -175,11 +175,19 @@ Follow-up changes folded into this fork after the A/B:
 - **`minimalSystemPrompt` renamed to `persona: "host" | "minimal"`, default `"host"`** — the old name implied trimming; it is a wholesale system-prompt *replacement* with the DSH minimal persona, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first); `persona: "minimal"` reproduces the validated S4 behavior (bootstrap-only swap, host prompt restored after promotion).
 - Fork renamed to `omp-dsv4-turn0-anchor` (the mechanism is a turn-0 scaffold anchor, not a CoT patch).
 
+### Follow-up design: opt-in `/minimal` (2026-08-15)
+
+Upstream review (Aurzex v0.7.0, xiaobright/dsh-anchored-standard) confirmed the promote semantics: dsh "Keeps the Minimal complete system prompt" for the whole session - its promote is purely additive (full catalog + injected context such as the AGENTS.md digest and skills reminder return from request #2 on; no host system prompt exists to restore). Aurzex's port keeps the DSH persona permanently ("only the tool catalog promotes"). This fork's bootstrap-only persona is the omp-side correction of that gap.
+
+Planned feature: an opt-in `/minimal` command making the session's FIRST input the anchored turn (one-line minimal persona + `bash`/`read`), with the promote in the window between input0 (`/minimal`) and input1 (the real task): the extension stops overriding, omp assembles its full system prompt again, and the task runs under the complete omp environment (skills, tools, AGENTS.md, ask guidance). Implementation plan: `docs/2026-08-15-minimal-command-plan.md`.
+
+Design claim to verify interactively (not headless-testable): whether the `We need` mode crosses the task boundary into input1 under the host prompt. dsh's whole-session persistence (r1/r2: 179 `we` / 1 `let me` over 193 reasoning blocks) does not transfer - it holds because their one-liner never leaves; at omp the task runs under the host prompt, where the A/B measures host at 0/4.
+
 ## References
 
 - `deepseek-ai/DeepSeek-V4-Flash-0731` model card (minimal-mode evaluation note)
 - `deepseek-ai/deepseek-harness` - minimal preset / RL composition notes
-- `xiaobright/dsh-anchored-standard` + issues #1/#6/#11/#12, PR #2/#7/#10
+- `xiaobright/dsh-anchored-standard` + issues #1/#6/#11/#12, PR #2/#7/#10; README (Anchored Standard: keeps the Minimal prompt, additive promote, r1/r2 whole-session `we` counts)
 - `xiaobright/modeltest` - Project2 scoreboard + trigger-mechanism ablation (2026-08-14)
 - `Aurzex/omp-pi-anchored-standard` - omp/pi port
 - `can1357/oh-my-pi` - extension/hooks API (`context` event, `before_agent_start`, `setActiveTools`)

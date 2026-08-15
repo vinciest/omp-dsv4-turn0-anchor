@@ -126,12 +126,13 @@ pi install github:vinciest/omp-dsv4-turn0-anchor
 - 提升决策按会话 id 在进程内记忆,历史只扫描一次。
 - bootstrap 工具在目录中缺失 → **fail-safe**:跳过过滤并告警,绝不静默剥工具。
 - 非目标模型完全不受影响。
+- **可选 `/minimal`**:在新会话里把 `/minimal` 作为**第一个输入** - 它的请求被锚定(DSH minimal 人设作为上下文首行,只有 `bash` + `read`)。然后用第二个输入描述真正的任务:两个输入之间的窗口里 omp 完整系统提示会回来(即 promote),任务在完整 omp 环境(技能、工具、AGENTS.md、ask 指引)下运行。默认是纯 host(不锚定),除非运行了 `/minimal` 或配置了 `persona: "minimal"`。
 
 宿主机制不同(行为一致):omp 通过 `pi.setActiveTools()` 原生收窄/恢复(其 `before_provider_request` 返回值会被 openai-completions 传输层丢弃);pi 在 `before_provider_request` 里过滤 payload。
 
 ## 验证
 
-会话里跑 `/anchored-tools`:报告目标模型、persona 模式、当前模型、是否命中、阶段(`bootstrap` / `promoted (full catalog)` / `not-targeted`)。
+会话里跑 `/anchored-tools`:报告目标模型、persona 模式、`/minimal` 待命状态(`minimal armed (next request): yes|no`)、当前模型、是否命中、阶段(`bootstrap` / `promoted (full catalog)` / `not-targeted`)。
 
 首次锚定与人设替换会打日志(omp 走 `pi.logger`,pi 走 console):
 

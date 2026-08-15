@@ -126,12 +126,13 @@ or add to `~/.pi/agent/settings.json` `packages` and `/reload`:
 - Promotion decision is memoized per session id in-process; history is scanned once.
 - A bootstrap tool missing from the catalog is a **fail-safe**: filtering is skipped with a warning, tools are never silently stripped.
 - Non-target models are completely unaffected.
+- **Opt-in `/minimal`**: in a fresh session, run `/minimal` as the FIRST input - its request is anchored (DSH minimal persona as the first line of context, only `bash` + `read`). Then type the actual task as the second input: omp's full system prompt returns in the window between the two inputs (the promote), so the task runs with the complete omp environment (skills, tools, AGENTS.md, ask guidance). Default is pure host (no anchor) unless `/minimal` is run or `persona: "minimal"` is set.
 
 Host mechanics differ (behavior is the same): omp narrows/restores natively via `pi.setActiveTools()` (its `before_provider_request` replacement is discarded by the openai-completions transport); pi filters the payload in `before_provider_request`.
 
 ## Verification
 
-Run `/anchored-tools` in a session: reports target models, persona mode, current model, matched, and phase (`bootstrap` / `promoted (full catalog)` / `not-targeted`).
+Run `/anchored-tools` in a session: reports target models, persona mode, minimal-armed state (`minimal armed (next request): yes|no`), current model, matched, and phase (`bootstrap` / `promoted (full catalog)` / `not-targeted`).
 
 First-request anchoring and persona swap log (omp via `pi.logger`, pi via console):
 
