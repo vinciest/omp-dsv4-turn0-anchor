@@ -237,6 +237,35 @@ export default function (pi: ExtensionAPI) {
 		if (!shouldLift) maybeNotifyPromoted(sid, ctx.model!.id, cfg, ctx);
 	};
 
+	// Re-apply the bootstrap narrowing for an already-narrowed session.
+	// omp connects MCP servers asynchronously; tools that mount AFTER the
+	// initial session_start/before_agent_start narrowing would otherwise leak
+	// into the request (they bypass nothing - they simply were not in the
+	// registry at call time). Re-applying at the last pre-request events
+	// (before_agent_start, agent_start, turn_start) narrows whatever is in
+	// the catalog by then. Also refreshes the full snapshot so the eventual
+	// restore includes late-mounted tools. Idempotent and cheap.
+	const reapplyNarrowed = async (ctx: ExtensionContext) => {
+		const sid = ctx.sessionManager.getSessionId();
+		if (!sid || !narrowed.has(sid) || restored.has(sid)) return;
+		const cfg = loadConfig(ctx, logger);
+		if (cfg.models.length === 0 || !isTarget(ctx.model, cfg)) return;
+		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+			ctx.sessionManager.getBranch(),
+		);
+		if (promoted) return;
+		const full = pi.getActiveTools();
+		const resolved = resolveBootstrap(full, BOOTSTRAP_TOOLS);
+		if (resolved.missing.length > 0) {
+			logger.warn(
+				`[${EXT_NAME}] bootstrap tools missing from catalog: ${resolved.missing.join(", ")}; skipping filter`,
+			);
+			return;
+		}
+		fullTools.set(sid, full);
+		await pi.setActiveTools(resolved.tools);
+	};
+
 	// Narrow before the first request is serialized. session_start may run
 	// before the model is known; before_agent_start always has it.
 	pi.on("session_start", async (event, ctx) => {
@@ -245,6 +274,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		const cfg = loadConfig(ctx, logger);
 		await ensureNarrowed(ctx, cfg);
+		await reapplyNarrowed(ctx);
 		// Bootstrap-only persona (opt-in `persona: "minimal"`): the DSH
 		// minimal persona anchors the FIRST request (co-equal trajectory
 		// anchor). Once the session is promoted, omp assembles its own system
@@ -261,6 +291,15 @@ export default function (pi: ExtensionAPI) {
 		);
 		if (promoted) return; // resumed already-promoted session
 		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
+	});
+
+	// MCP tools may mount after before_agent_start (async connect). Re-narrow
+	// once the agent loop is about to run and again per turn until promoted.
+	pi.on("agent_start", async (_event, ctx) => {
+		await reapplyNarrowed(ctx);
+	});
+	pi.on("turn_start", async (_event, ctx) => {
+		await reapplyNarrowed(ctx);
 	});
 
 	// Restore as soon as the promotion signal lands, before the next request.

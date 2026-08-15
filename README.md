@@ -164,6 +164,8 @@ npm test            # node --test (native TS)
 - omp's `setActiveTools` narrowing affects all transports, including in-band dialects (the dialect catalog is generated from active tools).
 - `persona: "minimal"` replaces the whole system prompt during bootstrap only; it is not a filter or a trim. Full minimal-mode users should use DeepSeek Harness directly.
 - Context compaction (`context-full` @ 350k) is untested against the promotion memo.
+- omp can drop `anchoredTools` from `~/.omp/agent/config.yml` when it rewrites the file itself (observed 2026-08-15: the block vanished after an omp config save, silently reverting `persona` to `host`). If anchoring stops applying, check the block; a project-level `<project>/.omp/config.yml` survives omp's global rewrites.
+- omp connects MCP servers asynchronously: a server mounting after the initial narrowing can leak its tools into the first request. The extension re-narrows at `before_agent_start`/`agent_start`/`turn_start`, covering mounts that land before request serialization; a server connecting mid-request is a residual gap (pi is unaffected - it filters the payload directly).
 - Upstream drift is intentional: task routing (upstream `v0.4.x`) is not ported. If you want task-aware routing, use upstream - but expect the config surface and permanent-persona behavior that this fork removes.
 
 ## License

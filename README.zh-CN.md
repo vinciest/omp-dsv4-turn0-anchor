@@ -164,6 +164,8 @@ npm test            # node --test(原生 TS)
 - omp 的 `setActiveTools` 收窄对所有传输层生效,含 in-band 方言(方言目录由活动工具生成)。
 - `persona: "minimal"` 只在整个 bootstrap 阶段替换系统提示;它不是过滤或裁剪。要完整 minimal 模式请直接用 DeepSeek Harness。
 - 上下文压缩(`context-full` @ 350k)对提升记忆的影响未测试。
+- omp 重写 `~/.omp/agent/config.yml` 时可能丢掉 `anchoredTools` 块(2026-08-15 实测:omp 一次配置保存后该块消失,`persona` 静默回到 `host`)。锚定不生效时先检查该块;项目级 `<项目>/.omp/config.yml` 不受 omp 全局重写影响。
+- omp 异步连接 MCP 服务器:在初始收窄之后才挂载的服务器可能把工具漏进首请求。扩展会在 `before_agent_start`/`agent_start`/`turn_start` 重新收窄,覆盖请求序列化前挂载的情况;请求中途才连上的服务器是残余缺口(pi 不受影响 - 它直接过滤 payload)。
 - 与上游的分歧是有意为之:task routing(上游 `v0.4.x`)未移植。需要 task-aware routing 请用上游 - 但要接受本 fork 已移除的配置面与永久人设行为。
 
 ## License
