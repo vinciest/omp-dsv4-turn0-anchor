@@ -118,6 +118,9 @@ export default function (pi: ExtensionAPI) {
 	const notified = new Set<string>();
 	// Sessions that already logged the one-time system-prompt rewrite notice.
 	const spLogged = new Set<string>();
+	// Sessions with a pending `/minimal` arm (one-shot; consumed by the next
+	// before_provider_request).
+	const armed = new Set<string>();
 	// Sessions already known promoted (append-only memo; avoids rescanning).
 	const promotionMemo = new SessionPromotionMemo();
 
@@ -150,10 +153,16 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("before_provider_request", (event, ctx) => {
 		const cfg = loadConfig(ctx, console.warn);
-		if (cfg.models.length === 0) return;
-		if (!isTarget(ctx.model, cfg)) return;
-
 		const sid = ctx.sessionManager.getSessionId();
+		// Explicit `/minimal` arm takes precedence over the config path and
+		// applies regardless of target model; consumed one-shot here.
+		const explicit = !!sid && armed.has(sid);
+		if (explicit && sid) armed.delete(sid);
+		if (!explicit) {
+			if (cfg.models.length === 0) return;
+			if (!isTarget(ctx.model, cfg)) return;
+		}
+
 		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
 			ctx.sessionManager.buildContextEntries(),
 		);
@@ -167,7 +176,7 @@ export default function (pi: ExtensionAPI) {
 		// request only (co-equal trajectory anchor); the host prompt returns
 		// once the session promotes. Default `persona: "host"` never touches
 		// the host prompt.
-		if (cfg.persona === "minimal" && !promoted) {
+		if ((explicit || cfg.persona === "minimal") && !promoted) {
 			const sp = rewriteSystemPrompt(payload, MINIMAL_SYSTEM_PROMPT);
 			if (sp.changed) {
 				payload = sp.payload as Record<string, unknown>;
@@ -241,13 +250,40 @@ export default function (pi: ExtensionAPI) {
 		anchoredSessions.clear();
 		notified.clear();
 		spLogged.clear();
+		armed.clear();
 		promotionMemo.clear();
 	});
+
+	pi.registerCommand("minimal", {
+		description:
+			"Anchor the next request: DSH minimal persona opens the context with bash/read only; pi's full system prompt and catalog return after the first exchange",
+		handler: async (_args, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
+			if (!sid) {
+				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
+				return;
+			}
+			armed.add(sid);
+			ctx.ui.notify(
+				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); pi prompt returns after the first exchange.",
+				"info",
+			);
+		},
+	});
+
+	// Test-only hook (see src/omp.ts); pi has no headless slash-command path.
+	if (process.env.ANCHORED_TOOLS_MINIMAL_ARM === "1") {
+		pi.on("session_start", (_event, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
+			if (sid) armed.add(sid);
+		});
+	}
 
 	pi.registerCommand("anchored-tools", {
 		description:
 			"Show anchored tool bootstrap status (model targeting, current phase)",
 		handler: async (_args, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
 			const cfg = loadConfig(ctx, console.warn);
 			const model = ctx.model;
 			const matched = isTarget(model, cfg);
@@ -263,6 +299,7 @@ export default function (pi: ExtensionAPI) {
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens}`,
 				`persona: ${cfg.persona === "minimal" ? "minimal (bootstrap-only swap)" : "host (untouched)"}`,
+				`minimal armed (next request): ${sid && armed.has(sid) ? "yes" : "no"}`,
 				`current model: ${model ? `${model.provider}/${model.id}` : "n/a"}`,
 				`model matched: ${matched ? "yes" : "no"}`,
 				`phase: ${phase}`,
