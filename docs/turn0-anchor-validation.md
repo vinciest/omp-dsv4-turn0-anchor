@@ -77,7 +77,7 @@ Baseline (pre-fix logs): `let me` in 54.6% of 14,663 thinking messages; anchored
 
 ## 6. The `/anchor-*` command evolution
 
-Mechanism evolution after the plan (`docs/anchor-commands.md`):
+Mechanism evolution after the plan (`docs/turn0-anchor-design.md`):
 
 - **v0.4.x**: `/minimal` armed the session; the next request ran with minimal persona + `bash`/`read` (bootstrap), promote in the window before the task. The design decision: at omp a host prompt exists, so the anchor gets its own turn.
 - **v0.5.0 - pure trigger ping-pong**: the command sends the upstream `ANCHOR_TEXT` (`"This round is a test. Tools are not open yet; all tools will open next round."`) via `sendUserMessage`. The anchor turn runs under the minimal persona with **zero tools**; the model can only "pong". The `We need` style must emerge from persona + zero tools, never from instructions - v0.4.3's directive prompt made the anchor turn do real work and was rejected as cheating. The pong's durable assistant message is the promotion signal: full catalog + omp's host system prompt return.
@@ -171,4 +171,4 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 - `xiaobright/modeltest` - Project2 v4.1b scoreboard + trigger-mechanism ablation (2026-08-14); `evaluator/run_full_eval.py` (deterministic scoring)
 - `Aurzex/omp-pi-anchored-standard` - upstream omp/pi port (v0.7.0 reviewed)
 - `can1357/oh-my-pi` - extension/hooks API (`before_agent_start`, `setActiveTools`, `input` event, `sendUserMessage`)
-- Fork repo: `omp-dsv4-turn0-anchor`; implementation record: `docs/anchor-commands.md`; upstream drift log: `docs/upstream-divergence.md`
+- Fork repo: `omp-dsv4-turn0-anchor`; design + implementation record: `docs/turn0-anchor-design.md`; upstream drift log: `docs/upstream-divergence.md`
