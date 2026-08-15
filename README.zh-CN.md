@@ -61,19 +61,29 @@ pi(`~/.pi/agent/settings.json`,可信项目 `.pi/settings.json` 覆盖,语义同
 
 ## 安装
 
-每会话 opt-in 是预期用法(不做全局注册):
+### omp
 
-```sh
-omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts
-```
-
-或作为插件安装(装完禁用,除非你想让它常驻):
+插件安装(之后用 `omp plugin enable` / `omp plugin disable` 管理):
 
 ```sh
 omp plugin install github:vinciest/omp-dsv4-turn0-anchor
 ```
 
-pi:
+装完若未启用,手动启用:
+
+```sh
+omp plugin enable omp-dsv4-turn0-anchor
+```
+
+启用后,扩展在每次会话都会加载,读取 `~/.omp/agent/config.yml`(或 `<项目>/.omp/config.yml`)里的 `anchoredTools` 配置;禁用插件即从会话中完全移除。
+
+每会话替代用法(不做全局注册),例如测试未提交的 checkout:
+
+```sh
+omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts
+```
+
+### pi
 
 ```sh
 pi install github:vinciest/omp-dsv4-turn0-anchor
@@ -85,7 +95,7 @@ pi install github:vinciest/omp-dsv4-turn0-anchor
 { "packages": ["git:github.com/vinciest/omp-dsv4-turn0-anchor"] }
 ```
 
-> `package.json` 保留了上游的名字/版本(`omp-pi-anchored-standard` 0.3.0),以便按包名检索的工具链直接兼容;本仓库未发布到 npm。
+> 未发布到 npm;从 git 仓库安装。包名为 `omp-dsv4-turn0-anchor`(扩展本身叫 `anchored-tools`,配置键 `anchoredTools`)。
 
 ## 行为
 

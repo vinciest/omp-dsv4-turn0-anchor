@@ -61,19 +61,29 @@ pi (`~/.pi/agent/settings.json`, same semantics via trusted-project `.pi/setting
 
 ## Install
 
-Per-session opt-in is the intended flow (no global registration):
+### omp
 
-```sh
-omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts
-```
-
-Or install as a plugin (then disable it unless you want it always-on):
+Plugin install (then manage with `omp plugin enable` / `omp plugin disable`):
 
 ```sh
 omp plugin install github:vinciest/omp-dsv4-turn0-anchor
 ```
 
-pi:
+Enable if not already enabled after install:
+
+```sh
+omp plugin enable omp-dsv4-turn0-anchor
+```
+
+While enabled, the extension loads in every session and reads `anchoredTools` from `~/.omp/agent/config.yml` (or `<project>/.omp/config.yml`). Disabling the plugin fully removes it from sessions.
+
+Per-session alternative (no global registration), e.g. for testing an uncommitted checkout:
+
+```sh
+omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts
+```
+
+### pi
 
 ```sh
 pi install github:vinciest/omp-dsv4-turn0-anchor
@@ -85,7 +95,7 @@ or add to `~/.pi/agent/settings.json` `packages` and `/reload`:
 { "packages": ["git:github.com/vinciest/omp-dsv4-turn0-anchor"] }
 ```
 
-> `package.json` keeps the upstream name/version (`omp-pi-anchored-standard` 0.3.0) for drop-in compatibility with tooling that keys on the package name; this repo has not been published to npm.
+> Not published to npm; install from the git repo. Package name is `omp-dsv4-turn0-anchor` (the extension itself is `anchored-tools`, config key `anchoredTools`).
 
 ## Behavior
 
