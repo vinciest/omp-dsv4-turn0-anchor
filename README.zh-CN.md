@@ -13,7 +13,7 @@
 
 ## 为什么有这个 fork
 
-社区报告声称 `deepseek-v4-flash-0731` "过拟合" DeepSeek Harness minimal 模式、在 oh-my-pi 里表现异常。调查结论([完整报告](docs/anchored-bootstrap-validation.md)):
+社区报告声称 `deepseek-v4-flash-0731` "过拟合" DeepSeek Harness minimal 模式、在 oh-my-pi 里表现异常。调查结论([完整报告](docs/turn0-anchor-validation.md)):
 
 - 模型与 harness `minimal` preset 都真实存在;但报告附带的扩展代码是伪造的(`@oh-my-pi/sdk` 在 npm 上不存在)。
 - 真正的问题是:minimal 人设是对系统提示的**整体替换**,发布版端口里的 `minimalSystemPrompt: true` 因此丢掉了 omp 的 harness 约定 - 尤其是 `ask` 工具的使用指引。锚定会话把第一个澄清问题写成了散文;对照组用了带结构化选项的 `ask` 工具。
@@ -143,7 +143,7 @@ pi install github:vinciest/omp-dsv4-turn0-anchor
 
 ## 验证方法
 
-方法、原始数据与会话级证据:[`docs/anchored-bootstrap-validation.md`](docs/anchored-bootstrap-validation.md)。摘要:
+方法、原始数据与会话级证据:[`docs/turn0-anchor-validation.md`](docs/turn0-anchor-validation.md)。摘要:
 
 - 社区 Project2 证据(私人基准,非普适结论):Pro minimal 99/96 vs standard 91;Flash minimal 92 = opencode 92(风格层面,人设驱动)。
 - 杠杆:首轮人设(Flash)、工具 schema(Pro)、首轮 `max_tokens`(1024 复现 `We need` 26/32 次,适配器默认值 0/5)、skill-catalog 注入(9KB 把 81% 翻转为 0%)。

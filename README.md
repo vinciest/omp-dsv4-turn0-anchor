@@ -13,7 +13,7 @@ With `persona: "host"` (the default) and no command, the plugin is **vanilla omp
 
 ## Why this fork exists
 
-A community report claimed `deepseek-v4-flash-0731` "overfits" to DeepSeek Harness minimal mode and breaks inside oh-my-pi. Investigation ([full report](docs/anchored-bootstrap-validation.md)):
+A community report claimed `deepseek-v4-flash-0731` "overfits" to DeepSeek Harness minimal mode and breaks inside oh-my-pi. Investigation ([full report](docs/turn0-anchor-validation.md)):
 
 - The model and the harness `minimal` preset are real; the report's own extension code was fabricated (`@oh-my-pi/sdk` does not exist on npm).
 - The real gap: the minimal persona is a **wholesale system-prompt replacement**, so the published port's `minimalSystemPrompt: true` threw away omp's harness conventions - notably the `ask` tool usage guidance. The anchored session asked its first clarifying question as prose; the control session used the `ask` tool with structured options.
@@ -143,7 +143,7 @@ First-request anchoring and persona swap log (omp via `pi.logger`, pi via consol
 
 ## Validation
 
-Methodology, raw numbers, and session-level evidence: [`docs/anchored-bootstrap-validation.md`](docs/anchored-bootstrap-validation.md). Summary:
+Methodology, raw numbers, and session-level evidence: [`docs/turn0-anchor-validation.md`](docs/turn0-anchor-validation.md). Summary:
 
 - Community Project2 evidence (personal benchmark, not universal): Pro minimal 99/96 vs standard 91; Flash minimal 92 = opencode 92 (style-level, persona-driven).
 - Levers: first-turn persona (Flash), tool schema (Pro), first-turn `max_tokens` (1024 reproduces `We need` 26/32 vs adapter default 0/5), skill-catalog injection (9KB flips 81% -> 0%).

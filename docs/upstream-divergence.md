@@ -6,7 +6,7 @@ Living record of how this fork relates to upstream `Aurzex/omp-pi-anchored-stand
 
 - Base: upstream `973ca91` (tag `v0.3.0`).
 - Fork commits: `3c745fb` lockfile, `fef1f43` bootstrap-only persona fix, `7ad3cf1` validation report, `713acb7` config trim, `fac529e` README fork identity, `d53fe47` Chinese README, `6ff1eb2` package rename, `2c3b501` fork-first README rewrite.
-- The validation report's config snapshot ([`anchored-bootstrap-validation.md`](anchored-bootstrap-validation.md) §6) is a dated pre-trim schema (9 keys) - kept as history.
+- The validation report's config snapshot ([`turn0-anchor-validation.md`](turn0-anchor-validation.md) §6) is a dated pre-trim schema (9 keys) - kept as history.
 
 ## What upstream did after the fork point
 
