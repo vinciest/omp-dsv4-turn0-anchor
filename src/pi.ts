@@ -145,6 +145,9 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		if (!sid || !anchoredSessions.get(sid) || notified.has(sid)) return;
 		notified.add(sid);
+		console.log(
+			`[${EXT_NAME}] ${modelId}: session ${sid} promoted - full tool catalog restored (notify sent)`,
+		);
 		ctx.ui.notify(
 			`[${EXT_NAME}] ${modelId}: session promoted — full tool catalog restored.`,
 			"info",
@@ -158,6 +161,10 @@ export default function (pi: ExtensionAPI) {
 		// applies regardless of target model; consumed one-shot here.
 		const explicit = !!sid && armed.has(sid);
 		if (explicit && sid) armed.delete(sid);
+		console.log(
+			`[${EXT_NAME}] before_provider_request sid=${sid ?? "none"} explicit=${explicit} ` +
+				`persona=${cfg.persona} target=${isTarget(ctx.model, cfg)} armedSize=${armed.size}`,
+		);
 		if (!explicit) {
 			if (cfg.models.length === 0) return;
 			if (!isTarget(ctx.model, cfg)) return;
@@ -240,6 +247,9 @@ export default function (pi: ExtensionAPI) {
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid || !anchoredSessions.get(sid) || notified.has(sid)) return;
 		notified.add(sid);
+		console.log(
+			`[${EXT_NAME}] ${ctx.model!.id}: session ${sid} promoted - full tool catalog restored (notify sent)`,
+		);
 		ctx.ui.notify(
 			`[${EXT_NAME}] ${ctx.model!.id}: first tool call recorded — full tool catalog restored.`,
 			"info",
@@ -247,6 +257,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		console.log(
+			`[${EXT_NAME}] session shutdown: clearing armed=[${[...armed].join(", ")}] ` +
+				`anchored=[${[...anchoredSessions.keys()].join(", ")}]`,
+		);
 		anchoredSessions.clear();
 		notified.clear();
 		spLogged.clear();
@@ -260,10 +274,15 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
+				console.warn(`[${EXT_NAME}] /minimal: no session id at command time`);
 				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
 				return;
 			}
 			armed.add(sid);
+			console.log(
+				`[${EXT_NAME}] /minimal: armed session ${sid} at ${new Date().toISOString()} ` +
+					`(one-shot, consumed by the next before_provider_request for this session)`,
+			);
 			ctx.ui.notify(
 				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); pi prompt returns after the first exchange.",
 				"info",

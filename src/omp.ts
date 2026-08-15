@@ -166,6 +166,9 @@ export default function (pi: ExtensionAPI) {
 	) => {
 		if (!sid || !narrowed.has(sid) || notified.has(sid)) return;
 		notified.add(sid);
+		logger.info(
+			`[${EXT_NAME}] ${modelId}: session ${sid} promoted - full tool catalog restored (notify sent)`,
+		);
 		ctx.ui.notify(
 			`[${EXT_NAME}] ${modelId}: session promoted — full tool catalog restored.`,
 			"info",
@@ -253,6 +256,9 @@ export default function (pi: ExtensionAPI) {
 
 		restored.add(sid);
 		await pi.setActiveTools(full);
+		logger.info(
+			`[${EXT_NAME}] restored session ${sid}: full catalog ${full.length} tools (${full.join(", ")})`,
+		);
 		if (!shouldLift) maybeNotifyPromoted(sid, ctx.model!.id, cfg, ctx);
 	};
 
@@ -297,6 +303,10 @@ export default function (pi: ExtensionAPI) {
 		// applies regardless of target model; consumed one-shot here.
 		const explicit = !!sid && armed.has(sid);
 		if (explicit && sid) armed.delete(sid);
+		logger.debug(
+			`[${EXT_NAME}] before_agent_start sid=${sid ?? "none"} explicit=${explicit} ` +
+				`persona=${cfg.persona} target=${isTarget(ctx.model, cfg)} armedSize=${armed.size}`,
+		);
 
 		if (explicit) {
 			await applyBootstrap(ctx, "/minimal: anchoring request");
@@ -344,6 +354,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		logger.info(
+			`[${EXT_NAME}] session shutdown: clearing armed=[${[...armed].join(", ")}] ` +
+				`narrowed=[${[...narrowed].join(", ")}] restored=[${[...restored].join(", ")}]`,
+		);
 		narrowed.clear();
 		restored.clear();
 		fullTools.clear();
@@ -358,10 +372,15 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
+				logger.warn(`[${EXT_NAME}] /minimal: no session id at command time`);
 				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
 				return;
 			}
 			armed.add(sid);
+			logger.info(
+				`[${EXT_NAME}] /minimal: armed session ${sid} at ${new Date().toISOString()} ` +
+					`(one-shot, consumed by the next before_agent_start for this session)`,
+			);
 			ctx.ui.notify(
 				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); omp prompt returns after the first exchange.",
 				"info",
