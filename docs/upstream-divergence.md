@@ -42,6 +42,8 @@ Checklist for each new upstream commit:
 | --- | --- | --- |
 | 2026-08-15 | `973ca91..4c47c8c` (v0.4.2) | Do not merge. Task routing added then defaulted off; permanent-persona model unchanged. |
 | 2026-08-15 | `4c47c8c..2e959a0` (v0.7.0) | Reviewed. Adopted: none (bootstrap-pair `bash`/`edit` tested under the swap, tied 4/4 vs `bash`/`read` - kept `bash`/`read` per the validated fix pattern and the `/minimal` design). Skipped: `taskRouting` (still default-off, still permanent-persona machinery), strip-context message rebuild (`d204cd5` - our swap already drops system-prompt-injected context; message-level strip untested here), post-promotion low-injection (xiaobright `67c0ee3` - future), `whoami` preset (xiaobright `250889f`). |
+| 2026-08-15 | Aurzex re-check | No new commits; `upstream/main` still `2e959a0` (v0.7.0). |
+| 2026-08-15 | dsh `f57a1bd..ffb845c` | Not adopted. `4c52927` / `505a6e1` (PR #27, "incremental-promotion-fold" is a stale branch name - actual content is tool-bootstrap config validation: reject unknown keys at apply time) - the fork has no tool-bootstrap config surface. `a2e7d6a` / `ffb845c` (PR #29, dev-tool-search schema scoping through the executing agent) - feature not carried. |
 
 ## What upstream learned that we use
 
