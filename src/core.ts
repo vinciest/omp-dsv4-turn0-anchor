@@ -358,28 +358,23 @@ export interface SwapDecision {
 	persistMinimal: boolean;
 	persona: PersonaMode;
 	isTarget: boolean;
-	/** Session already restored to the full catalog (promoted this process). */
-	restored: boolean;
-	/** Session already promoted (durable tool call or assistant message). */
-	promoted: boolean;
 }
 
 /**
  * Whether the next request's system prompt must be the DSH minimal persona:
  *  - the anchored turn (explicit `/anchor-*` arm) is always minimal;
  *  - `/anchor-minimal` keeps the minimal persona for the whole session
- *    (persistMinimal), even after promotion;
- *  - the config path (`persona: "minimal"`) swaps during the bootstrap phase
- *    only, until the session promotes (restored/promoted end the swap);
+ *    (persistMinimal);
+ *  - the config path (`persona: "minimal"`) is a pure whole-session swap for
+ *    target-model sessions - full tools from request 1, no anchor turn, no
+ *    narrowing (the measured scene-2 profile minus the zero-tool turn);
  *  - otherwise the host system prompt is untouched.
  */
 export function shouldSwapMinimal(d: SwapDecision): boolean {
 	if (d.explicit) return true;
 	if (d.persistMinimal) return true;
-	if (d.persona !== "minimal") return false;
-	if (!d.isTarget) return false;
-	if (d.restored || d.promoted) return false;
-	return true;
+	if (d.persona === "minimal" && d.isTarget) return true;
+	return false;
 }
 
 /** Resolved extension configuration. */

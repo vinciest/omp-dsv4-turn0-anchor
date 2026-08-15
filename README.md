@@ -6,8 +6,8 @@ Fork of the `omp-pi-anchored-standard` extension (`anchored-tools`) for **omp** 
 
 The extension anchors a session's **first request** to the same turn-0 scaffold the model was trained against (DeepSeek Harness `minimal` preset), then hands control back to the host:
 
-1. **Config path** (`persona: "minimal"`): the first request exposes only `bash` + `read` (on pi, output budget is capped at `bootstrapMaxTokens`, default 1024). The first durable promotion signal (a tool call or an assistant message, whichever comes first) returns the full tool catalog, and the host system prompt returns too.
-2. **Command path** (`/anchor-builtin`, `/anchor-minimal`): the next input is transformed to `[ANCHOR_TEXT + task]` and runs with **zero tools** under the minimal persona; the first response (a text-only "pong") promotes the full catalog. `/anchor-builtin` then returns omp's builtin system prompt; `/anchor-minimal` keeps the minimal persona for the whole session.
+1. **Config path** (`persona: "minimal"`): a pure whole-session swap - every target-model request runs under the DSH minimal persona with the full tool catalog (no anchor turn, no narrowing). Default `persona: "host"` never touches omp's system prompt.
+2. **Command path** (`/anchor-builtin`, `/anchor-minimal`): the command arms the session and sends the upstream `ANCHOR_TEXT` ping-pong (via `sendUserMessage`); that turn runs with **zero tools** under the minimal persona, the model can only "pong", and the first response promotes the full catalog. `/anchor-builtin` then returns omp's builtin system prompt; `/anchor-minimal` keeps the minimal persona for the whole session. The task is typed after the pong and runs with full tools.
 
 With `persona: "host"` (the default) and no command, the plugin is **vanilla omp** - no narrowing, no persona swap, no input rewriting.
 
@@ -29,7 +29,7 @@ Bootstrap-only is the fix, not a compromise: minimal persona on the first unprom
 | Change | Upstream | This fork |
 | --- | --- | --- |
 | Persona scope | Permanent replacement | **Bootstrap-only**: minimal persona on the first unpromoted request, host system prompt restored after promotion (the validated fix) |
-| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **3 optional settings**: `models`, `persona`, `bootstrapMaxTokens`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `[ANCHOR_TEXT + task]` anchor is available per-session via `/anchor-builtin` and `/anchor-minimal` |
+| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **3 optional settings**: `models`, `persona`, `bootstrapMaxTokens`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin` and `/anchor-minimal` |
 | Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "host" \| "minimal"`**, default **`"host"`** - the swap is a whole-prompt *replacement*, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
 | Default models | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - case-insensitive prefix globs, cross `/` (match `deepseek-v4-flash-0731`, `-free`, provider-qualified ids) |
 
@@ -51,7 +51,7 @@ All settings optional. Global `~/.omp/agent/config.yml` (or `<project>/.omp/conf
 anchoredTools:
     models: # optional - default ["deepseek-v4-flash*", "deepseek-v4-pro*"]
         - deepseek-v4-flash # glob; with "/" matches "provider/modelId" only, bare name matches both
-    persona: host # optional - "host" (default, never touches omp's system prompt) | "minimal" (bootstrap-only swap, restored after promotion)
+    persona: host # optional - "host" (default, never touches omp's system prompt) | "minimal" (pure whole-session swap for target models, full tools)
     bootstrapMaxTokens: 1024 # optional - first-request output cap (pi only; validated on omp, not applied)
 ```
 
@@ -126,7 +126,7 @@ or add to `~/.pi/agent/settings.json` `packages` and `/reload`:
 - Promotion decision is memoized per session id in-process; history is scanned once.
 - A bootstrap tool missing from the catalog is a **fail-safe**: filtering is skipped with a warning, tools are never silently stripped.
 - Non-target models are completely unaffected.
-- **Opt-in commands** (run in a fresh session before the task): `/anchor-builtin` and `/anchor-minimal` arm the session. Your next message becomes the anchored request: `[ANCHOR_TEXT + task]` under the minimal persona with **zero tools** - the model can only acknowledge (the "pong"). The first response promotes the full tool catalog; because the anchored response is text-only, send one more message (e.g. "continue") to start work with the full catalog. `/anchor-builtin` returns omp's builtin system prompt after the anchor turn; `/anchor-minimal` keeps the minimal persona for the rest of the session. Default is pure host (no anchor) unless a command is run or `persona: "minimal"` is set.
+- **Opt-in commands** (run in a fresh session before the task): `/anchor-builtin` and `/anchor-minimal` arm the session and send the upstream `ANCHOR_TEXT` ping-pong via `sendUserMessage`. The ping-pong turn runs under the minimal persona with **zero tools** - the model can only respond "pong" (the promotion signal). The full tool catalog is restored before your next message (the task) serializes, so the task runs with full tools; `/anchor-builtin` also returns omp's builtin system prompt, `/anchor-minimal` keeps the minimal persona for the rest of the session. Default is pure host (no anchor) unless a command is run or `persona: "minimal"` is set.
 
 Host mechanics differ (behavior is the same): omp narrows/restores natively via `pi.setActiveTools()` (its `before_provider_request` replacement is discarded by the openai-completions transport); pi filters the payload in `before_provider_request`.
 

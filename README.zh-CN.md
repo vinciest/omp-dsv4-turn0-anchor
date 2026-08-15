@@ -6,8 +6,8 @@
 
 扩展把会话的**第一个请求**锚定到模型训练时对应的 turn-0 scaffold(DeepSeek Harness `minimal` preset),随后把控制权交还宿主:
 
-1. **配置路径**(`persona: "minimal"`):首请求只暴露 `bash` + `read`(pi 侧输出预算封顶 `bootstrapMaxTokens`,默认 1024)。第一个持久提升信号(首个 tool call 或 assistant 消息,先到者为准)恢复完整工具目录,宿主系统提示也一并恢复。
-2. **命令路径**(`/anchor-builtin`、`/anchor-minimal`):下一条输入被改写成 `[ANCHOR_TEXT + task]`,在 minimal 人设、**零工具**下运行;首个响应(纯文本 "pong")触发提升、恢复完整工具目录。`/anchor-builtin` 之后恢复 omp 内置系统提示;`/anchor-minimal` 则在整个会话里保持 minimal 人设。
+1. **配置路径**(`persona: "minimal"`):纯整会话替换 - 每个命中模型的请求都在 DSH minimal 人设、完整工具目录下运行(无锚定回合、不收窄)。默认 `persona: "host"` 不动 omp 系统提示。
+2. **命令路径**(`/anchor-builtin`、`/anchor-minimal`):命令使会话待命,并通过 `sendUserMessage` 发送上游 `ANCHOR_TEXT` ping-pong;该回合在 minimal 人设、**零工具**下运行,模型只能回应("pong"),首个响应触发提升、恢复完整工具目录。`/anchor-builtin` 之后恢复 omp 内置系统提示;`/anchor-minimal` 则在整个会话里保持 minimal 人设。任务在 pong 之后输入,在完整工具目录下运行。
 
 `persona: "host"`(默认)且未运行命令时,插件就是**原生 omp** - 不收窄、不换人设、不改写输入。
 
@@ -51,7 +51,7 @@ Bootstrap-only 是修复本身,不是折中:minimal 人设只用于第一个未�
 anchoredTools:
     models: # 可选 - 默认 ["deepseek-v4-flash*", "deepseek-v4-pro*"]
         - deepseek-v4-flash # glob;含 "/" 只匹配 "provider/modelId",裸名两种都匹配
-    persona: host # 可选 - "host"(默认,不动 omp 系统提示) | "minimal"(bootstrap-only 替换,提升后恢复)
+    persona: host # 可选 - "host"(默认,不动 omp 系统提示) | "minimal"(命中模型整会话纯替换为 minimal 人设,完整工具)
     bootstrapMaxTokens: 1024 # 可选 - 首请求输出上限(仅 pi 生效;omp 仅校验、不施加)
 ```
 
@@ -126,7 +126,7 @@ pi install github:vinciest/omp-dsv4-turn0-anchor
 - 提升决策按会话 id 在进程内记忆,历史只扫描一次。
 - bootstrap 工具在目录中缺失 → **fail-safe**:跳过过滤并告警,绝不静默剥工具。
 - 非目标模型完全不受影响。
-- **可选命令**(在任务前的新会话里运行):`/anchor-builtin` 与 `/anchor-minimal` 使会话待命。你的下一条消息成为锚定请求:`[ANCHOR_TEXT + task]`、minimal 人设、**零工具** - 模型只能回应("pong")。首个响应触发提升、恢复完整工具目录;由于锚定响应是纯文本,再发一条消息(如 "continue")即可在完整工具目录下开工。`/anchor-builtin` 在锚定回合后恢复 omp 内置系统提示;`/anchor-minimal` 在整个会话里保持 minimal 人设。默认是纯 host(不锚定),除非运行了命令或配置了 `persona: "minimal"`。
+- **可选命令**(在任务前的新会话里运行):`/anchor-builtin` 与 `/anchor-minimal` 使会话待命,并通过 `sendUserMessage` 发送上游 `ANCHOR_TEXT` ping-pong。ping-pong 回合在 minimal 人设、**零工具**下运行 - 模型只能回应("pong",即提升信号)。完整工具目录会在你的下一条消息(任务)序列化前恢复,任务因此全程带工具运行;`/anchor-builtin` 同时恢复 omp 内置系统提示,`/anchor-minimal` 在整个会话里保持 minimal 人设。默认是纯 host(不锚定),除非运行了命令或配置了 `persona: "minimal"`。
 
 宿主机制不同(行为一致):omp 通过 `pi.setActiveTools()` 原生收窄/恢复(其 `before_provider_request` 返回值会被 openai-completions 传输层丢弃);pi 在 `before_provider_request` 里过滤 payload。
 
