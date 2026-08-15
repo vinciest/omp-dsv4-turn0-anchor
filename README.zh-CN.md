@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`omp-pi-anchored-standard` 扩展(`anchored-tools`)的一个 fork,面向 **omp**(Oh My Pi)与 **pi**(pi-coding-agent),包含**经实测验证的 bootstrap-only 人设修复**(针对 DeepSeek V4 Flash/Pro),并把配置面精简到"约定优于配置"。
+`omp-pi-anchored-standard` 扩展(`anchored-tools`)的一个 fork,面向 **omp**(Oh My Pi)与 **pi**(pi-coding-agent),包含**经实测验证的 bootstrap-only 人设修复**(针对 DeepSeek V4 Flash/Pro),并把配置面精简到"约定优于配置"。基于上游 `973ca91`;上游此后走向了不同方向,本 fork 有意不跟随(见[与上游的差异](#与上游的差异))。
 
 扩展把目标模型的**第一个请求**锚定到模型训练时对应的 turn-0 scaffold(DeepSeek Harness `minimal` preset),随后把控制权交还宿主:
 
@@ -20,16 +20,28 @@
 - 在 `deepseek-v4-flash` 上的 A/B(基线:`let me` 出现在 14,663 条思考消息的 54.6% 中):启用 bootstrap-only 人设修复后,锚定会话既产出 `We need` 推理,也发出正确的结构化 `ask` 工具调用 - 这正是 standard preset 想要的轨迹,且 turn 0 之后 omp 的约定不再丢失。
 - "But wait" 不是 deepseek 的特征指纹:它是跨模型的(MiMo V2.5 Pro 11.8% vs deepseek 4.7% 的消息占比),且 0731 发布前后频率稳定。
 
-## 与上游 `Aurzex/omp-pi-anchored-standard` 的差异
+Bootstrap-only 是修复本身,不是折中:minimal 人设只用于第一个未提升请求,提升后恢复宿主系统提示。永久替换(上游的做法)买到的是同样的 turn-0 锚定,却永久丢掉了宿主约定 - A/B 证明这才是真正的失败模式。
+
+## 与上游的差异
+
+### fork 分歧点(`973ca91`)
 
 | 变更 | 上游 | 本 fork |
 | --- | --- | --- |
 | 人设作用域 | 永久替换 | **Bootstrap-only**:minimal 人设只用于第一个未提升请求,提升后恢复宿主系统提示(经实测的修复) |
-| 配置面 | 9 项(`enabled`、`bootstrapTools`、`bootstrapMode`、`promoteOn`、`anchorText`、`notify`、`minimalSystemPrompt`、`models`、`bootstrapMaxTokens`) | **3 项可选配置**:`models`、`persona`、`bootstrapMaxTokens`。bootstrap 工具固定为 `bash`+`read`;提升信号固定为 `either`;零工具模式移除(上游把它作为独立实验 preset 保留) |
+| 配置面 | 9 项(`enabled`、`bootstrapTools`、`bootstrapMode`、`promoteOn`、`anchorText`、`notify`、`minimalSystemPrompt`、`models`、`bootstrapMaxTokens`) | **3 项可选配置**:`models`、`persona`、`bootstrapMaxTokens`。bootstrap 工具固定为 `bash`+`read`;提升信号固定为 `either`;零工具模式移除 |
 | 配置名 | `minimalSystemPrompt`(暗示"裁剪") | **`persona: "host" \| "minimal"`**,默认 **`"host"`** - 该开关是整体*替换*,而 "minimal" 是 DeepSeek Harness 的模式,不是本扩展的模式。默认不做替换(omp 优先:想要完整 minimal 体验直接用 dsh) |
 | 默认模型 | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - 大小写不敏感前缀通配,可跨 `/`(匹配 `deepseek-v4-flash-0731`、`-free`、provider 限定 id) |
 
 两个宿主(omp + pi)的配置语义完全一致;pi 侧的人设替换上游也是永久生效,本 fork 同样改为 bootstrap-only。
+
+### fork 分歧点之后(上游 `v0.4.2`)
+
+上游在本 fork 分歧后加入了 task-aware routing(`a1bc4a7`):任务分类(`spec`/`react`/`weak`)、按模式区分的人设与工具集、新增 `taskRouting` 配置键,随后又**把它默认关闭**(`4c47c8c`,理由是 "stable We need anchoring")。这等于上游自己承认:额外的机制会破坏锚定的稳定性 - 与本 fork 移除的干扰模式相同(实测:9KB skill-catalog 注入把 `We need` 从 81% 翻转为 0%)。本 fork 保留窄化的 bootstrap-only 修复,不移植 task routing。
+
+### 身份
+
+包名已从 `omp-pi-anchored-standard` 改为 `omp-dsv4-turn0-anchor`(fork 身份)。扩展名(`anchored-tools`)与配置键(`anchoredTools`)保持不变 - **不要把上游与本 fork 同时安装**(扩展名、配置键相同,后加载者静默生效)。启用其一前,先禁用或卸载另一个。
 
 ## 配置
 
@@ -77,11 +89,20 @@ omp plugin enable omp-dsv4-turn0-anchor
 
 启用后,扩展在每次会话都会加载,读取 `~/.omp/agent/config.yml`(或 `<项目>/.omp/config.yml`)里的 `anchoredTools` 配置;禁用插件即从会话中完全移除。
 
-每会话替代用法(不做全局注册),例如测试未提交的 checkout:
+每会话替代用法(不做全局注册)- 迭代时用 checkout,插件已装时也可直接指到插件副本:
 
 ```sh
-omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts
+omp -e /path/to/omp-dsv4-turn0-anchor/src/omp.ts                                  # fork checkout
+omp -e ~/.omp/plugins/node_modules/omp-dsv4-turn0-anchor/src/omp.ts               # 已安装的插件副本
 ```
+
+插件处于**启用**状态时,请把 `-e` 与 `--no-extensions` 搭配使用,避免同一文件注册两次:
+
+```sh
+omp --no-extensions -e ~/.omp/plugins/node_modules/omp-dsv4-turn0-anchor/src/omp.ts
+```
+
+插件副本的 `@oh-my-pi/pi-coding-agent` SDK 由 omp 自身运行时解析(已实测),但 `omp plugin uninstall` 会删除该目录 - 需要不随卸载消失的路径请用 checkout。
 
 ### pi
 
@@ -143,6 +164,7 @@ npm test            # node --test(原生 TS)
 - omp 的 `setActiveTools` 收窄对所有传输层生效,含 in-band 方言(方言目录由活动工具生成)。
 - `persona: "minimal"` 只在整个 bootstrap 阶段替换系统提示;它不是过滤或裁剪。要完整 minimal 模式请直接用 DeepSeek Harness。
 - 上下文压缩(`context-full` @ 350k)对提升记忆的影响未测试。
+- 与上游的分歧是有意为之:task routing(上游 `v0.4.x`)未移植。需要 task-aware routing 请用上游 - 但要接受本 fork 已移除的配置面与永久人设行为。
 
 ## License
 
