@@ -268,8 +268,13 @@ export default function (pi: ExtensionAPI) {
 	// into the request (they bypass nothing - they simply were not in the
 	// registry at call time). Re-applying at the last pre-request events
 	// (before_agent_start, agent_start, turn_start) narrows whatever is in
-	// the catalog by then. Also refreshes the full snapshot so the eventual
-	// restore includes late-mounted tools. Idempotent and cheap.
+	// the catalog by then. NOTE: the `fullTools` snapshot is intentionally
+	// NOT refreshed here - while narrowed, `getActiveTools()` returns the
+	// narrowed set, so a refresh would destroy the original full catalog and
+	// the post-promotion restore would then restore the narrowed set (bug
+	// observed 2026-08-15: "restored session ... full catalog 2 tools").
+	// The restore therefore returns the pre-narrowing catalog; tools that
+	// mounted after narrowing (e.g. late MCP) are excluded for the session.
 	const reapplyNarrowed = async (ctx: ExtensionContext) => {
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid || !narrowed.has(sid) || restored.has(sid)) return;
@@ -287,7 +292,6 @@ export default function (pi: ExtensionAPI) {
 			);
 			return;
 		}
-		fullTools.set(sid, full);
 		await pi.setActiveTools(resolved.tools);
 	};
 
