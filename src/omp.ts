@@ -328,6 +328,12 @@ export default function (pi: ExtensionAPI) {
 				`[${EXT_NAME}] /minimal: anchor turn for ${ctx.model?.provider ?? "?"}/${ctx.model?.id ?? "?"}: 0 tools`,
 			);
 		} else {
+			// Lift any pending promotion BEFORE this request serializes: the
+			// anchor turn's message_end restore can race the next request's
+			// assembly (observed 2026-08-15: task request serialized with the
+			// zero-tool anchor state 30ms before the restore, the model then
+			// emitted a tool call as XML text and nothing executed).
+			await ensureRestored(ctx, cfg);
 			await ensureNarrowed(ctx, cfg);
 			await reapplyNarrowed(ctx);
 		}
