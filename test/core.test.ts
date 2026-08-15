@@ -1,9 +1,6 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-	ANCHOR_TEXT,
-	anchorContent,
-	anchorPayloadMessages,
 	applyDefaults,
 	capMaxTokens,
 	deepMerge,
@@ -13,8 +10,6 @@ import {
 	hasToolCallHistory,
 	isPositiveInt,
 	isPromoted,
-	isSubagentSession,
-	lastUserIndex,
 	matchGlob,
 	memoizedIsPromoted,
 	MINIMAL_SYSTEM_PROMPT,
@@ -22,9 +17,9 @@ import {
 	resolveBootstrap,
 	rewriteSystemPrompt,
 	SessionPromotionMemo,
+	DEFAULTS,
 	shouldRestoreFullCatalog,
 	toolName,
-	zeroAnchorPayload,
 } from "../src/core.ts";
 
 describe("toolName", () => {
@@ -94,6 +89,28 @@ describe("modelMatches", () => {
 	});
 	test("empty patterns never match", () => {
 		assert.equal(modelMatches("deepseek-v4-pro", "deepseek", []), false);
+	});
+	test("defaults target the deepseek v4 flash/pro families", () => {
+		assert.equal(
+			modelMatches("deepseek-v4-flash", "opencode-go", DEFAULTS.models),
+			true,
+		);
+		assert.equal(
+			modelMatches("deepseek-v4-flash-0731", "opencode-go", DEFAULTS.models),
+			true,
+		);
+		assert.equal(
+			modelMatches("deepseek-v4-flash-free", "deepseek", DEFAULTS.models),
+			true,
+		);
+		assert.equal(
+			modelMatches("deepseek-v4-pro", "deepseek", DEFAULTS.models),
+			true,
+		);
+		assert.equal(
+			modelMatches("glm-5.2", "opencode-go", DEFAULTS.models),
+			false,
+		);
 	});
 });
 
@@ -217,18 +234,6 @@ describe("hasAssistantMessage", () => {
 	});
 });
 
-describe("isSubagentSession", () => {
-	test("session_init entry marks a subagent session (omp)", () => {
-		assert.equal(isSubagentSession([{ type: "session_init" }]), true);
-	});
-	test("plain message history is not a subagent session", () => {
-		assert.equal(
-			isSubagentSession([{ type: "message", message: { role: "user" } }]),
-			false,
-		);
-	});
-});
-
 describe("isPromoted", () => {
 	const textAssistant = [
 		{
@@ -243,24 +248,18 @@ describe("isPromoted", () => {
 		},
 	];
 
-	test("tool-call trigger ignores text-only assistant messages", () => {
-		assert.equal(isPromoted(textAssistant, "tool-call"), false);
-		assert.equal(isPromoted(toolCall, "tool-call"), true);
+	test("promotes on a durable tool call or assistant message (either)", () => {
+		assert.equal(isPromoted(textAssistant), true);
+		assert.equal(isPromoted(toolCall), true);
 	});
-	test("assistant-message trigger promotes on any assistant message", () => {
-		assert.equal(isPromoted(textAssistant, "assistant-message"), true);
-		assert.equal(isPromoted(toolCall, "assistant-message"), true);
-	});
-	test("either trigger fires on whichever comes first", () => {
-		assert.equal(isPromoted(textAssistant, "either"), true);
-		assert.equal(isPromoted(toolCall, "either"), true);
+	test("user-only history does not promote", () => {
 		assert.equal(
-			isPromoted(
-				[{ type: "message", message: { role: "user" } }],
-				"either",
-			),
+			isPromoted([{ type: "message", message: { role: "user" } }]),
 			false,
 		);
+	});
+	test("empty history does not promote", () => {
+		assert.equal(isPromoted([]), false);
 	});
 });
 
@@ -278,12 +277,12 @@ describe("SessionPromotionMemo / memoizedIsPromoted", () => {
 			];
 		};
 		assert.equal(
-			memoizedIsPromoted(memo, "s", "either", promotedEntries),
+			memoizedIsPromoted(memo, "s", promotedEntries),
 			true,
 		);
 		assert.equal(scans, 1);
 		assert.equal(
-			memoizedIsPromoted(memo, "s", "either", () => {
+			memoizedIsPromoted(memo, "s", () => {
 				scans++;
 				return [];
 			}),
@@ -294,13 +293,10 @@ describe("SessionPromotionMemo / memoizedIsPromoted", () => {
 
 	test("unpromoted scan records promotion once it flips", () => {
 		const memo = new SessionPromotionMemo();
-		assert.equal(
-			memoizedIsPromoted(memo, "s", "tool-call", () => []),
-			false,
-		);
+		assert.equal(memoizedIsPromoted(memo, "s", () => []), false);
 		assert.equal(memo.has("s"), false);
 		assert.equal(
-			memoizedIsPromoted(memo, "s", "tool-call", () => [
+			memoizedIsPromoted(memo, "s", () => [
 				{ type: "message", message: { role: "toolResult" } },
 			]),
 			true,
@@ -328,11 +324,11 @@ describe("SessionPromotionMemo / memoizedIsPromoted", () => {
 			];
 		};
 		assert.equal(
-			memoizedIsPromoted(memo, undefined, "either", promotedEntries),
+			memoizedIsPromoted(memo, undefined, promotedEntries),
 			true,
 		);
 		assert.equal(
-			memoizedIsPromoted(memo, undefined, "either", promotedEntries),
+			memoizedIsPromoted(memo, undefined, promotedEntries),
 			true,
 		);
 		assert.equal(scans, 2);
@@ -341,16 +337,6 @@ describe("SessionPromotionMemo / memoizedIsPromoted", () => {
 
 describe("shouldRestoreFullCatalog", () => {
 	const cfg = applyDefaults({ models: ["deepseek-v4-pro"] });
-
-	test("disabled config restores", () => {
-		assert.equal(
-			shouldRestoreFullCatalog(
-				{ ...cfg, enabled: false },
-				{ id: "deepseek-v4-pro", provider: "deepseek" },
-			),
-			true,
-		);
-	});
 
 	test("empty target list restores", () => {
 		assert.equal(
@@ -516,14 +502,8 @@ describe("extractRaw", () => {
 
 describe("applyDefaults", () => {
 	const fullDefaults = {
-		enabled: true,
-		models: [],
-		bootstrapTools: ["bash", "read"],
-		notify: true,
-		bootstrapMode: "two-tool",
-		promoteOn: "either",
-		anchorText: ANCHOR_TEXT,
-		minimalSystemPrompt: true,
+		models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
+		persona: "host",
 		bootstrapMaxTokens: 1024,
 	};
 
@@ -536,47 +516,24 @@ describe("applyDefaults", () => {
 			["a", "b"],
 		);
 	});
-	test("empty bootstrapTools falls back to the default list", () => {
-		assert.deepStrictEqual(
-			applyDefaults({ bootstrapTools: [] }).bootstrapTools,
-			["bash", "read"],
-		);
-	});
 	test("scalars default when missing", () => {
-		assert.equal(applyDefaults({ models: ["x"] }).enabled, true);
-		assert.equal(applyDefaults({ models: ["x"] }).notify, true);
+		assert.equal(applyDefaults({ models: ["x"] }).persona, "host");
+		assert.equal(applyDefaults({ models: ["x"] }).bootstrapMaxTokens, 1024);
 	});
-	test("explicit scalars and lists win", () => {
+	test("explicit values win", () => {
 		const cfg = applyDefaults({
-			enabled: false,
 			models: ["a"],
-			bootstrapTools: ["bash"],
-			notify: false,
-			bootstrapMode: "zero",
-			promoteOn: "tool-call",
-			anchorText: "custom",
-			minimalSystemPrompt: false,
+			persona: "minimal",
 			bootstrapMaxTokens: 4096,
 		});
 		assert.deepStrictEqual(cfg, {
-			enabled: false,
 			models: ["a"],
-			bootstrapTools: ["bash"],
-			notify: false,
-			bootstrapMode: "zero",
-			promoteOn: "tool-call",
-			anchorText: "custom",
-			minimalSystemPrompt: false,
+			persona: "minimal",
 			bootstrapMaxTokens: 4096,
 		});
 	});
-	test("invalid bootstrapMode and promoteOn normalize to defaults", () => {
-		const cfg = applyDefaults({
-			bootstrapMode: "one-tool",
-			promoteOn: "tool_call",
-		});
-		assert.equal(cfg.bootstrapMode, "two-tool");
-		assert.equal(cfg.promoteOn, "either");
+	test("invalid persona normalizes to host", () => {
+		assert.equal(applyDefaults({ persona: "maximal" }).persona, "host");
 	});
 	test("invalid bootstrapMaxTokens normalizes to the default", () => {
 		assert.equal(
@@ -596,105 +553,6 @@ describe("applyDefaults", () => {
 				.bootstrapMaxTokens,
 			1024,
 		);
-	});
-	test("empty anchorText falls back to the default anchor", () => {
-		assert.equal(applyDefaults({ anchorText: "" }).anchorText, ANCHOR_TEXT);
-	});
-});
-
-describe("anchor message helpers", () => {
-	test("lastUserIndex finds the last user message", () => {
-		const messages = [
-			{ role: "system", content: "s" },
-			{ role: "user", content: "a" },
-			{ role: "assistant", content: "b" },
-			{ role: "user", content: "c" },
-		];
-		assert.equal(lastUserIndex(messages), 3);
-	});
-	test("lastUserIndex returns -1 without a user message", () => {
-		assert.equal(lastUserIndex([{ role: "system", content: "s" }]), -1);
-	});
-	test("anchorContent mirrors string content", () => {
-		assert.equal(anchorContent("anchor", "hello"), "anchor");
-	});
-	test("anchorContent mirrors block content", () => {
-		assert.deepStrictEqual(
-			anchorContent("anchor", [{ type: "text", text: "hello" }]),
-			[{ type: "text", text: "anchor" }],
-		);
-	});
-	test("anchorContent falls back to a string", () => {
-		assert.equal(anchorContent("anchor", 42), "anchor");
-	});
-	test("anchorPayloadMessages replaces the last user message content", () => {
-		const messages = [{ role: "user", content: "real question" }];
-		const next = anchorPayloadMessages(messages, "anchor");
-		assert.deepStrictEqual(next, [{ role: "user", content: "anchor" }]);
-	});
-	test("anchorPayloadMessages mirrors block content", () => {
-		const messages = [
-			{ role: "user", content: [{ type: "text", text: "real" }] },
-		];
-		const next = anchorPayloadMessages(messages, "anchor");
-		assert.deepStrictEqual(next, [
-			{ role: "user", content: [{ type: "text", text: "anchor" }] },
-		]);
-	});
-	test("anchorPayloadMessages keeps non-user messages and other fields", () => {
-		const messages = [
-			{ role: "system", content: "s" },
-			{ role: "user", content: "real", extra: 1 },
-		];
-		const next = anchorPayloadMessages(messages, "anchor");
-		assert.deepStrictEqual(next, [
-			{ role: "system", content: "s" },
-			{ role: "user", content: "anchor", extra: 1 },
-		]);
-	});
-	test("anchorPayloadMessages returns undefined without a user message", () => {
-		assert.equal(
-			anchorPayloadMessages([{ role: "system", content: "s" }], "anchor"),
-			undefined,
-		);
-		assert.equal(anchorPayloadMessages(undefined, "anchor"), undefined);
-	});
-});
-
-describe("zeroAnchorPayload", () => {
-	const payload = {
-		model: "deepseek/deepseek-v4-flash",
-		messages: [{ role: "user", content: "real question" }],
-		tools: [{ type: "function", function: { name: "bash" } }],
-	};
-
-	test("strips all tools and anchors the first request on the anchor turn", () => {
-		const { payload: out, anchored } = zeroAnchorPayload(
-			payload,
-			ANCHOR_TEXT,
-		);
-		assert.equal(anchored, true);
-		assert.deepStrictEqual(out?.tools, []);
-		assert.deepStrictEqual(out?.messages, [
-			{ role: "user", content: ANCHOR_TEXT },
-		]);
-		assert.equal(out?.model, "deepseek/deepseek-v4-flash"); // rest of payload preserved
-	});
-	test("payload without a user message still loses its tools", () => {
-		const { payload: out } = zeroAnchorPayload(
-			{ tools: [{ type: "function", function: { name: "bash" } }] },
-			ANCHOR_TEXT,
-		);
-		assert.deepStrictEqual(out?.tools, []);
-		assert.equal(out?.messages, undefined);
-	});
-	test("undefined payload is not anchored", () => {
-		const { payload: out, anchored } = zeroAnchorPayload(
-			undefined,
-			ANCHOR_TEXT,
-		);
-		assert.equal(anchored, false);
-		assert.equal(out, undefined);
 	});
 });
 

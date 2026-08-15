@@ -66,14 +66,14 @@ pi.on("before_agent_start", async (event, ctx) => {
     // omp assembles its own system prompt again so harness conventions
     // (ask tool, AGENTS.md digest, skill reminders) return from request
     // #2 on - mirroring the upstream context-injection restore.
-    if (!cfg.minimalSystemPrompt || !isTarget(ctx.model, cfg)) return;
+    // (post-trim: setting renamed minimalSystemPrompt -> persona)
+    if (cfg.persona !== "minimal" || !isTarget(ctx.model, cfg)) return;
     const sid = ctx.sessionManager.getSessionId();
     if (!sid) return;
     if (restored.has(sid)) return; // promoted this process
     const promoted = memoizedIsPromoted(
         promotionMemo,
         sid,
-        trigger(cfg),
         () => ctx.sessionManager.getBranch(),
     );
     if (promoted) return; // resumed already-promoted session
@@ -166,6 +166,14 @@ omp -e <path-to>/src/omp.ts
 ```
 
 Validation pass criteria for any future change: first thinking `We need`-style, `let me` near zero, and a structured `ask` (or other omp convention) working from the questioning phase on.
+
+## Update (post-validation)
+
+Follow-up changes folded into this fork after the A/B:
+
+- **Config trimmed (Convention over Configuration)** — 9 settings → 3 optional: `models` (default `["deepseek-v4-flash*", "deepseek-v4-pro*"]`), `persona`, `bootstrapMaxTokens` (pi-only). Dropped: `enabled`, `bootstrapTools` (fixed `bash`+`read`), `bootstrapMode` (zero mode removed — upstream keeps it as a separate experimental preset), `promoteOn` (fixed `either`), `notify`, `anchorText`.
+- **`minimalSystemPrompt` renamed to `persona: "host" | "minimal"`, default `"host"`** — the old name implied trimming; it is a wholesale system-prompt *replacement* with the DSH minimal persona, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first); `persona: "minimal"` reproduces the validated S4 behavior (bootstrap-only swap, host prompt restored after promotion).
+- Fork renamed to `omp-dsv4-turn0-anchor` (the mechanism is a turn-0 scaffold anchor, not a CoT patch).
 
 ## References
 

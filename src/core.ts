@@ -8,11 +8,10 @@
  * request on a small tool surface, promote to the full catalog after the
  * session's first durable promotion signal. The pi port is
  * (https://github.com/dbydd/pi-anchored-tool-for-dspro); the pure helpers
- * below mirror that implementation's semantics exactly, extended with the
- * upstream "zero-tool anchor" mode (zero-anchored-standard), the `promoteOn`
- * trigger selector, the permanent minimal persona (DSH `minimal` preset), and
- * the first-request output-budget cap (`bootstrapMaxTokens`, upstream issue
- * #6).
+ * below mirror that implementation's semantics exactly, trimmed to the
+ * decisions that matter: model targeting (`models`), an optional bootstrap
+ * persona swap (`persona: "minimal"`), and the pi-only first-request
+ * output-budget cap (`bootstrapMaxTokens`, upstream issue #6).
  */
 
 export interface ToolLike {
@@ -122,38 +121,12 @@ export function hasAssistantMessage(entries: EntryLike[]): boolean {
 }
 
 /**
- * True when the session is a subagent (task) session. omp writes a
- * `session_init` entry for agent sessions; pi's session model has no such
- * entry, so this is a no-op there (pi subagents are anchored like everything
- * else).
+ * Whether the session has reached the promoted (full-catalog) phase.
+ * Matches upstream's `PROMOTE_EVENTS` with the `either` default: the session
+ * promotes on its first durable tool call OR its first durable assistant
+ * message, whichever comes first — so a text-only first reply still promotes.
  */
-export function isSubagentSession(entries: EntryLike[]): boolean {
-	return entries.some((e) => e.type === "session_init");
-}
-
-export type PromoteOn = "tool-call" | "assistant-message" | "either";
-
-export function isPromoteOn(value: unknown): value is PromoteOn {
-	return (
-		value === "tool-call" ||
-		value === "assistant-message" ||
-		value === "either"
-	);
-}
-
-/**
- * Whether the session has reached the promoted (full-catalog) phase, per the
- * configured trigger. Matches upstream's `PROMOTE_EVENTS`:
- *  - tool-call:         first durable tool call
- *  - assistant-message: first durable assistant message
- *  - either (default):  whichever comes first
- */
-export function isPromoted(
-	entries: EntryLike[],
-	promoteOn: PromoteOn,
-): boolean {
-	if (promoteOn === "tool-call") return hasToolCallHistory(entries);
-	if (promoteOn === "assistant-message") return hasAssistantMessage(entries);
+export function isPromoted(entries: EntryLike[]): boolean {
 	return hasToolCallHistory(entries) || hasAssistantMessage(entries);
 }
 
@@ -189,11 +162,10 @@ export class SessionPromotionMemo {
 export function memoizedIsPromoted(
 	memo: SessionPromotionMemo,
 	sid: string | undefined,
-	promoteOn: PromoteOn,
 	getEntries: () => EntryLike[],
 ): boolean {
 	if (sid && memo.has(sid)) return true;
-	const promoted = isPromoted(getEntries(), promoteOn);
+	const promoted = isPromoted(getEntries());
 	if (promoted && sid) memo.add(sid);
 	return promoted;
 }
@@ -245,81 +217,6 @@ export function filterTools(
 	);
 	const changed = filtered.length !== payloadTools.length;
 	return { changed, tools: changed ? filtered : payloadTools, missing: [] };
-}
-
-/** One serialized chat message inside a provider payload. */
-export interface PayloadMessage {
-	role?: string;
-	content?: unknown;
-}
-
-/** Index of the last user message in a payload messages array, or -1. */
-export function lastUserIndex(messages: PayloadMessage[]): number {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i]?.role === "user") return i;
-	}
-	return -1;
-}
-
-/**
- * Mirror the content shape of the message the anchor is appended after:
- * string user content stays a string, block content becomes a single text
- * block. Falls back to a string for anything else.
- */
-export function anchorContent(
-	anchorText: string,
-	lastUserContent: unknown,
-): string | { type: "text"; text: string }[] {
-	if (typeof lastUserContent === "string") return anchorText;
-	if (Array.isArray(lastUserContent))
-		return [{ type: "text", text: anchorText }];
-	return anchorText;
-}
-
-/**
- * Zero-mode first-request anchor: replace the last user message's content
- * with the anchor text, so the first request carries only the anchor turn
- * (the real message stays persisted in the session and is answered when the
- * conversation continues, matching upstream's "real message proceeds next
- * round"). Returns the new messages array, or undefined when there is no
- * user message to anchor (the caller then leaves messages untouched).
- */
-export function anchorPayloadMessages(
-	messages: PayloadMessage[] | undefined,
-	anchorText: string,
-): PayloadMessage[] | undefined {
-	if (!Array.isArray(messages) || messages.length === 0) return undefined;
-	const idx = lastUserIndex(messages);
-	if (idx < 0) return undefined;
-	const next = messages.slice();
-	const last = messages[idx];
-	next[idx] = { ...last, content: anchorContent(anchorText, last?.content) };
-	return next;
-}
-
-/**
- * Zero-mode first-request transform: strip the whole tool catalog and anchor
- * the first request on the fixed anchor turn (last user message content is
- * replaced with the anchor text). Returns the rewritten payload plus whether
- * the payload was actually modified.
- */
-export function zeroAnchorPayload(
-	payload: Record<string, unknown> | undefined,
-	anchorText: string,
-): {
-	payload: Record<string, unknown> | undefined;
-	anchored: boolean;
-} {
-	if (!payload || typeof payload !== "object") {
-		return { payload: undefined, anchored: false };
-	}
-	const messages = anchorPayloadMessages(
-		payload.messages as PayloadMessage[] | undefined,
-		anchorText,
-	);
-	const next: Record<string, unknown> = { ...payload, tools: [] };
-	if (messages) next.messages = messages;
-	return { payload: next, anchored: true };
 }
 
 /** DSH minimal-mode system prompt, byte-identical to the DeepSeek Harness
@@ -417,12 +314,6 @@ export function capMaxTokens(
 	};
 }
 
-export type BootstrapMode = "two-tool" | "zero";
-
-export function isBootstrapMode(value: unknown): value is BootstrapMode {
-	return value === "two-tool" || value === "zero";
-}
-
 /** True for a positive safe integer (bootstrapMaxTokens validation). */
 export function isPositiveInt(value: unknown): value is number {
 	return (
@@ -430,61 +321,58 @@ export function isPositiveInt(value: unknown): value is number {
 	);
 }
 
+/** Bootstrap tool names the first request is narrowed to (fixed, like upstream). */
+export const BOOTSTRAP_TOOLS: string[] = ["bash", "read"];
+
+/**
+ * System-prompt mode for target-model sessions:
+ *  - "host"   (default): keep the host's own system prompt untouched; only
+ *    the tool catalog is narrowed on the first request.
+ *  - "minimal": replace the whole system prompt with the DSH minimal persona
+ *    during the bootstrap phase only (the turn-0 trajectory anchor); the host
+ *    system prompt returns once the session promotes.
+ * The replacement is wholesale, not a filter, and "minimal" names a mode of
+ * the DeepSeek Harness, not of this extension — hence the explicit opt-in.
+ */
+export type PersonaMode = "host" | "minimal";
+
+export function isPersonaMode(value: unknown): value is PersonaMode {
+	return value === "host" || value === "minimal";
+}
+
 /** Resolved extension configuration. */
 export interface Config {
-	enabled: boolean;
 	models: string[];
-	bootstrapTools: string[];
-	notify: boolean;
-	bootstrapMode: BootstrapMode;
-	promoteOn: PromoteOn;
-	anchorText: string;
-	minimalSystemPrompt: boolean;
+	persona: PersonaMode;
 	bootstrapMaxTokens: number;
 }
 
 /**
  * True when a currently narrowed omp session must be restored to the full
- * catalog even without a promotion signal: anchoring was disabled, the target
- * list is empty, or a known model is no longer targeted. Returns false for an
- * unknown model — `session_start` can fire before the model is known, and the
- * next hook with a model makes the decision.
+ * catalog even without a promotion signal: the target list is empty, or a
+ * known model is no longer targeted. Returns false for an unknown model —
+ * `session_start` can fire before the model is known, and the next hook with
+ * a model makes the decision.
  */
 export function shouldRestoreFullCatalog(
 	cfg: Config,
 	model: { id: string; provider: string } | undefined,
 ): boolean {
-	if (!cfg.enabled || cfg.models.length === 0) return true;
+	if (cfg.models.length === 0) return true;
 	if (model === undefined) return false;
 	return !modelMatches(model.id, model.provider, cfg.models);
 }
 
 /** Raw `anchoredTools` block as read from the host settings file. */
 export interface RawConfig {
-	enabled?: boolean;
 	models?: string[];
-	bootstrapTools?: string[];
-	notify?: boolean;
-	bootstrapMode?: unknown;
-	promoteOn?: unknown;
-	anchorText?: string;
-	minimalSystemPrompt?: boolean;
+	persona?: unknown;
 	bootstrapMaxTokens?: number;
 }
 
-/** Fixed anchor text from upstream zero-anchored-standard (config-overridable). */
-export const ANCHOR_TEXT =
-	"This round is a test. Tools are not open yet; all tools will open next round.";
-
 export const DEFAULTS: Config = {
-	enabled: true,
-	models: [],
-	bootstrapTools: ["bash", "read"],
-	notify: true,
-	bootstrapMode: "two-tool",
-	promoteOn: "either",
-	anchorText: ANCHOR_TEXT,
-	minimalSystemPrompt: true,
+	models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
+	persona: "host",
 	bootstrapMaxTokens: 1024,
 };
 
@@ -502,34 +390,15 @@ export function extractRaw(
 }
 
 /**
- * Apply defaults to a raw config. Arrays are deduplicated; an empty
- * `bootstrapTools` array falls back to the default (a configured empty list
- * would otherwise strip every tool on the first request). Invalid
- * `bootstrapMode`/`promoteOn` values normalize to their defaults.
+ * Apply defaults to a raw config. Model arrays are deduplicated; an invalid
+ * `persona` value normalizes to "host".
  */
 export function applyDefaults(raw: RawConfig): Config {
 	return {
-		enabled: raw.enabled ?? DEFAULTS.enabled,
 		models: Array.isArray(raw.models)
 			? [...new Set(raw.models)]
 			: DEFAULTS.models,
-		bootstrapTools:
-			Array.isArray(raw.bootstrapTools) && raw.bootstrapTools.length > 0
-				? [...new Set(raw.bootstrapTools)]
-				: DEFAULTS.bootstrapTools,
-		notify: raw.notify ?? DEFAULTS.notify,
-		bootstrapMode: isBootstrapMode(raw.bootstrapMode)
-			? raw.bootstrapMode
-			: DEFAULTS.bootstrapMode,
-		promoteOn: isPromoteOn(raw.promoteOn)
-			? raw.promoteOn
-			: DEFAULTS.promoteOn,
-		anchorText:
-			typeof raw.anchorText === "string" && raw.anchorText.length > 0
-				? raw.anchorText
-				: DEFAULTS.anchorText,
-		minimalSystemPrompt:
-			raw.minimalSystemPrompt ?? DEFAULTS.minimalSystemPrompt,
+		persona: isPersonaMode(raw.persona) ? raw.persona : DEFAULTS.persona,
 		bootstrapMaxTokens: isPositiveInt(raw.bootstrapMaxTokens)
 			? raw.bootstrapMaxTokens
 			: DEFAULTS.bootstrapMaxTokens,

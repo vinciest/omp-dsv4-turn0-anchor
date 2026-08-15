@@ -2,9 +2,8 @@
  * anchored-tools — omp entry point.
  *
  * Port of the dsh-anchored-standard bootstrap concept to omp (Oh My Pi),
- * mirroring the pi port (dbydd/pi-anchored-tool-for-dspro) one-to-one, plus
- * the upstream zero-tool anchor mode and the `promoteOn` trigger selector.
- * The shared pure logic lives in src/core.ts.
+ * mirroring the pi port (dbydd/pi-anchored-tool-for-dspro). The shared pure
+ * logic lives in src/core.ts.
  *
  * Mechanism note (differs from the pi entry): omp's `before_provider_request`
  * replacement is NOT honored by the openai-completions transport (the engine
@@ -12,18 +11,15 @@
  * and discards the return). This entry therefore controls the tool surface
  * natively via `pi.setActiveTools()`: the narrowed catalog becomes the active
  * tool set before the first request is serialized, and the full captured set
- * is restored as soon as the promotion signal lands. The zero-mode anchor
- * message is injected through the `context` event, which is applied
- * pre-serialization and honored by every transport.
+ * is restored as soon as the promotion signal lands.
  *
  *   - narrow: session_start / before_agent_start → `setActiveTools(bootstrap)`
- *     or `setActiveTools([])` (zero mode) for a target-model session still in
- *     the bootstrap phase;
- *   - anchor (zero mode): `context` hook hides the real user message behind
- *     the fixed anchor turn on the first request;
- *   - persona: `before_agent_start` returns `{ systemPrompt: [...] }` to swap
- *     the whole system prompt for the permanent DSH minimal persona
- *     (`minimalSystemPrompt`, default on);
+ *     for a target-model session still in the bootstrap phase;
+ *   - persona (opt-in `persona: "minimal"`): `before_agent_start` returns
+ *     `{ systemPrompt: [...] }` to swap the whole system prompt for the DSH
+ *     minimal persona during the bootstrap phase only — the host system
+ *     prompt returns once the session promotes. Default `persona: "host"`
+ *     never touches omp's system prompt.
  *   - restore: tool_call / message_end → `setActiveTools(full)` once the
  *     session is promoted, before the next request serializes;
  *   - the phase is derived from durable session entries via
@@ -42,15 +38,10 @@
  *
  *   # ~/.omp/agent/config.yml
  *   anchoredTools:
- *     enabled: true
  *     models:
- *       - deepseek-v4-flash        # glob patterns; "provider/modelId" or bare modelId
- *     bootstrapTools:
- *       - bash
- *       - read                    # two-tool mode only
- *     bootstrapMode: two-tool     # "two-tool" | "zero"
- *     promoteOn: either           # "tool-call" | "assistant-message" | "either"
- *     notify: true                # one-time TUI notice on promotion
+ *       - deepseek-v4-flash*        # optional; default targets the flash/pro families
+ *     persona: host                # optional; "host" (default) | "minimal"
+ *     bootstrapMaxTokens: 1024     # optional; pi-only, validated on omp
  *
  * Requirements: omp runs on Bun, so `Bun.YAML.parse` is available for reading
  * YAML settings. No other runtime dependencies.
@@ -58,22 +49,19 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
 import {
 	getAgentDir,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	anchorPayloadMessages,
 	applyDefaults,
+	BOOTSTRAP_TOOLS,
 	deepMerge,
 	extractRaw,
-	isBootstrapMode,
+	isPersonaMode,
 	isPositiveInt,
-	isPromoteOn,
 	isPromoted,
-	isSubagentSession,
 	memoizedIsPromoted,
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
@@ -81,8 +69,6 @@ import {
 	SessionPromotionMemo,
 	shouldRestoreFullCatalog,
 	type Config,
-	type EntryLike,
-	type PayloadMessage,
 	type RawConfig,
 } from "./core";
 
@@ -127,17 +113,9 @@ function loadConfig(
 		readConfigYaml(logger, configCandidates(join(ctx.cwd, OMP_CONFIG_DIR))),
 	);
 	const merged = deepMerge(globalRaw, projectRaw) as RawConfig;
-	if (
-		merged.bootstrapMode !== undefined &&
-		!isBootstrapMode(merged.bootstrapMode)
-	) {
+	if (merged.persona !== undefined && !isPersonaMode(merged.persona)) {
 		logger.warn(
-			`[${EXT_NAME}] invalid bootstrapMode ${JSON.stringify(merged.bootstrapMode)}; using "two-tool"`,
-		);
-	}
-	if (merged.promoteOn !== undefined && !isPromoteOn(merged.promoteOn)) {
-		logger.warn(
-			`[${EXT_NAME}] invalid promoteOn ${JSON.stringify(merged.promoteOn)}; using "either"`,
+			`[${EXT_NAME}] invalid persona ${JSON.stringify(merged.persona)}; using "host"`,
 		);
 	}
 	if (
@@ -167,15 +145,7 @@ export default function (pi: ExtensionAPI) {
 	const isTarget = (
 		model: { id: string; provider: string } | undefined,
 		cfg: Config,
-	): boolean =>
-		!!model &&
-		cfg.enabled &&
-		modelMatches(model.id, model.provider, cfg.models);
-
-	const trigger = (
-		cfg: Config,
-	): "tool-call" | "assistant-message" | "either" =>
-		cfg.bootstrapMode === "zero" ? "assistant-message" : cfg.promoteOn;
+	): boolean => !!model && modelMatches(model.id, model.provider, cfg.models);
 
 	/** One-time promotion notice for a session we actually anchored. */
 	const maybeNotifyPromoted = (
@@ -191,8 +161,7 @@ export default function (pi: ExtensionAPI) {
 			};
 		},
 	) => {
-		if (!sid || !cfg.notify || !narrowed.has(sid) || notified.has(sid))
-			return;
+		if (!sid || !narrowed.has(sid) || notified.has(sid)) return;
 		notified.add(sid);
 		ctx.ui.notify(
 			`[${EXT_NAME}] ${modelId}: session promoted — full tool catalog restored.`,
@@ -206,7 +175,7 @@ export default function (pi: ExtensionAPI) {
 	 * configured bootstrap tool is missing from the catalog.
 	 */
 	const ensureNarrowed = async (ctx: ExtensionContext, cfg: Config) => {
-		if (!cfg.enabled || cfg.models.length === 0) {
+		if (cfg.models.length === 0) {
 			await ensureRestored(ctx, cfg);
 			return;
 		}
@@ -219,53 +188,35 @@ export default function (pi: ExtensionAPI) {
 		}
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid || narrowed.has(sid)) return;
-		let entries: EntryLike[] | undefined;
-		const promoted = memoizedIsPromoted(
-			promotionMemo,
-			sid,
-			trigger(cfg),
-			() => {
-				const branch = ctx.sessionManager.getBranch();
-				entries = branch;
-				return branch;
-			},
+		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+			ctx.sessionManager.getBranch(),
 		);
 		if (promoted) return; // already promoted (resume/reload)
-		if (cfg.bootstrapMode === "zero" && isSubagentSession(entries ?? []))
-			return; // subagents full catalog
 
 		const full = pi.getActiveTools();
-		let target: string[];
-		if (cfg.bootstrapMode === "zero") {
-			target = [];
-		} else {
-			const resolved = resolveBootstrap(full, cfg.bootstrapTools);
-			if (resolved.missing.length > 0) {
-				// Configuration error — fail safe, never strip tools silently.
-				logger.warn(
-					`[${EXT_NAME}] bootstrap tools missing from catalog: ${resolved.missing.join(", ")}; skipping filter`,
-				);
-				return;
-			}
-			target = resolved.tools;
+		const resolved = resolveBootstrap(full, BOOTSTRAP_TOOLS);
+		if (resolved.missing.length > 0) {
+			// Configuration error — fail safe, never strip tools silently.
+			logger.warn(
+				`[${EXT_NAME}] bootstrap tools missing from catalog: ${resolved.missing.join(", ")}; skipping filter`,
+			);
+			return;
 		}
 
 		narrowed.add(sid);
 		fullTools.set(sid, full);
-		await pi.setActiveTools(target);
+		await pi.setActiveTools(resolved.tools);
 		logger.info(
 			`[${EXT_NAME}] anchoring first request for ${ctx.model!.provider}/${ctx.model!.id}: ` +
-				(cfg.bootstrapMode === "zero"
-					? "0 tools (zero-tool anchor)"
-					: `${target.length}/${full.length} tools (${target.join(", ")})`),
+				`${resolved.tools.length}/${full.length} tools (${resolved.tools.join(", ")})`,
 		);
 	};
 
 	/**
 	 * Restore the full active tool set once the session is promoted, before
 	 * the next request serializes, or immediately when the session stopped
-	 * being a target (config disabled, empty target list, model switched).
-	 * Idempotent per session.
+	 * being a target (empty target list, model switched). Idempotent per
+	 * session.
 	 */
 	const ensureRestored = async (ctx: ExtensionContext, cfg: Config) => {
 		const sid = ctx.sessionManager.getSessionId();
@@ -275,11 +226,8 @@ export default function (pi: ExtensionAPI) {
 
 		const shouldLift = shouldRestoreFullCatalog(cfg, ctx.model);
 		if (!shouldLift) {
-			const promoted = memoizedIsPromoted(
-				promotionMemo,
-				sid,
-				trigger(cfg),
-				() => ctx.sessionManager.getBranch(),
+			const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+				ctx.sessionManager.getBranch(),
 			);
 			if (!promoted) return; // not yet promoted
 		}
@@ -297,20 +245,19 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		const cfg = loadConfig(ctx, logger);
 		await ensureNarrowed(ctx, cfg);
-		// Bootstrap-only persona: the DSH minimal persona anchors the FIRST
-		// request (co-equal trajectory anchor). Once the session is promoted,
-		// omp assembles its own system prompt again so harness conventions
-		// (ask tool, AGENTS.md digest, skill reminders) return from request
-		// #2 on - mirroring the upstream context-injection restore.
-		if (!cfg.minimalSystemPrompt || !isTarget(ctx.model, cfg)) return;
+		// Bootstrap-only persona (opt-in `persona: "minimal"`): the DSH
+		// minimal persona anchors the FIRST request (co-equal trajectory
+		// anchor). Once the session is promoted, omp assembles its own system
+		// prompt again so harness conventions (ask tool, AGENTS.md digest,
+		// skill reminders) return from request #2 on - mirroring the upstream
+		// context-injection restore. Default `persona: "host"` never touches
+		// omp's system prompt.
+		if (cfg.persona !== "minimal" || !isTarget(ctx.model, cfg)) return;
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid) return;
 		if (restored.has(sid)) return; // promoted this process
-		const promoted = memoizedIsPromoted(
-			promotionMemo,
-			sid,
-			trigger(cfg),
-			() => ctx.sessionManager.getBranch(),
+		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+			ctx.sessionManager.getBranch(),
 		);
 		if (promoted) return; // resumed already-promoted session
 		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
@@ -326,36 +273,7 @@ export default function (pi: ExtensionAPI) {
 		await ensureRestored(ctx, loadConfig(ctx, logger));
 	});
 
-	// Zero-mode anchor: hide the real user message behind the fixed anchor
-	// turn on the first request. The context event is applied before
-	// serialization and is honored by every transport.
-	pi.on("context", (event, ctx) => {
-		const cfg = loadConfig(ctx, logger);
-		if (
-			cfg.bootstrapMode !== "zero" ||
-			!cfg.enabled ||
-			cfg.models.length === 0
-		)
-			return;
-		const sid = ctx.sessionManager.getSessionId();
-		if (!sid || !narrowed.has(sid) || restored.has(sid)) return;
-		if (!isTarget(ctx.model, cfg)) return;
-		const promoted = memoizedIsPromoted(
-			promotionMemo,
-			sid,
-			"assistant-message",
-			() => ctx.sessionManager.getBranch(),
-		);
-		if (promoted) return;
-		const replaced = anchorPayloadMessages(
-			event.messages as unknown as PayloadMessage[],
-			cfg.anchorText,
-		);
-		if (replaced) return { messages: replaced as AgentMessage[] };
-	});
-
-	pi.on("session_shutdown", () => {
-		narrowed.clear();
+	pi.on("session_shutdown", () => {		narrowed.clear();
 		restored.clear();
 		fullTools.clear();
 		notified.clear();
@@ -370,24 +288,17 @@ export default function (pi: ExtensionAPI) {
 			const model = ctx.model;
 			const matched = isTarget(model, cfg);
 			const entries = ctx.sessionManager.getBranch();
-			const promoted = isPromoted(entries, trigger(cfg));
-			const phase = !cfg.enabled
-				? "disabled"
-				: !matched
-					? "not-targeted"
-					: promoted
-						? "promoted (full catalog)"
-						: cfg.bootstrapMode === "zero"
-							? "bootstrap (zero-tool anchor)"
-							: `bootstrap (${cfg.bootstrapTools.join(", ")} only)`;
+			const promoted = isPromoted(entries);
+			const phase = !matched
+				? "not-targeted"
+				: promoted
+					? "promoted (full catalog)"
+					: `bootstrap (${BOOTSTRAP_TOOLS.join(", ")} only)`;
 			const lines = [
-				`enabled: ${cfg.enabled}`,
-				`mode: ${cfg.bootstrapMode}`,
-				`promote on: ${cfg.promoteOn}`,
 				`target models: ${cfg.models.join(", ") || "(none — no model is anchored)"}`,
-				`bootstrap tools: ${cfg.bootstrapTools.join(", ")}`,
-				`bootstrap max tokens: ${cfg.bootstrapMaxTokens}${cfg.bootstrapMode === "two-tool" ? " (pi only)" : ""}`,
-				`minimal system prompt: ${cfg.minimalSystemPrompt ? "on (DSH minimal persona)" : "off (host default)"}`,
+				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
+				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
+				`persona: ${cfg.persona === "minimal" ? "minimal (bootstrap-only swap)" : "host (untouched)"}`,
 				`current model: ${model ? `${model.provider}/${model.id}` : "n/a"}`,
 				`model matched: ${matched ? "yes" : "no"}`,
 				`phase: ${phase}`,
