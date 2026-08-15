@@ -297,11 +297,23 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		const cfg = loadConfig(ctx, logger);
 		await ensureNarrowed(ctx, cfg);
-		// Permanent: the DSH minimal persona replaces the whole system prompt
-		// (co-equal trajectory anchor; only the tool catalog promotes).
-		if (cfg.minimalSystemPrompt && isTarget(ctx.model, cfg)) {
-			return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
-		}
+		// Bootstrap-only persona: the DSH minimal persona anchors the FIRST
+		// request (co-equal trajectory anchor). Once the session is promoted,
+		// omp assembles its own system prompt again so harness conventions
+		// (ask tool, AGENTS.md digest, skill reminders) return from request
+		// #2 on - mirroring the upstream context-injection restore.
+		if (!cfg.minimalSystemPrompt || !isTarget(ctx.model, cfg)) return;
+		const sid = ctx.sessionManager.getSessionId();
+		if (!sid) return;
+		if (restored.has(sid)) return; // promoted this process
+		const promoted = memoizedIsPromoted(
+			promotionMemo,
+			sid,
+			trigger(cfg),
+			() => ctx.sessionManager.getBranch(),
+		);
+		if (promoted) return; // resumed already-promoted session
+		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
 	});
 
 	// Restore as soon as the promotion signal lands, before the next request.
