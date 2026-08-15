@@ -140,6 +140,9 @@ export default function (pi: ExtensionAPI) {
 	const promotionMemo = new SessionPromotionMemo();
 	// Sessions that already showed the one-time promotion notice.
 	const notified = new Set<string>();
+	// Sessions with a pending `/minimal` arm (one-shot: consumed by the next
+	// before_agent_start).
+	const armed = new Set<string>();
 	const logger = pi.logger;
 
 	const isTarget = (
@@ -170,6 +173,38 @@ export default function (pi: ExtensionAPI) {
 	};
 
 	/**
+	 * Narrow the session's active tool set to the bootstrap catalog with
+	 * bookkeeping (narrowed/fullTools sets). Fails safe (warn + skip) when a
+	 * configured bootstrap tool is missing from the catalog. Idempotent per
+	 * session; returns false when skipped (already narrowed, restored, or a
+	 * bootstrap tool is missing).
+	 */
+	const applyBootstrap = async (
+		ctx: ExtensionContext,
+		note: string,
+	): Promise<boolean> => {
+		const sid = ctx.sessionManager.getSessionId();
+		if (!sid || narrowed.has(sid) || restored.has(sid)) return false;
+		const full = pi.getActiveTools();
+		const resolved = resolveBootstrap(full, BOOTSTRAP_TOOLS);
+		if (resolved.missing.length > 0) {
+			// Configuration error - fail safe, never strip tools silently.
+			logger.warn(
+				`[${EXT_NAME}] bootstrap tools missing from catalog: ${resolved.missing.join(", ")}; skipping filter`,
+			);
+			return false;
+		}
+		narrowed.add(sid);
+		fullTools.set(sid, full);
+		await pi.setActiveTools(resolved.tools);
+		logger.info(
+			`[${EXT_NAME}] ${note} for ${ctx.model?.provider ?? "?"}/${ctx.model?.id ?? "?"}: ` +
+				`${resolved.tools.length}/${full.length} tools (${resolved.tools.join(", ")})`,
+		);
+		return true;
+	};
+
+	/**
 	 * Narrow the session's active tool set before the first request is
 	 * serialized. Idempotent per session; fails safe (warn + skip) when a
 	 * configured bootstrap tool is missing from the catalog.
@@ -193,23 +228,7 @@ export default function (pi: ExtensionAPI) {
 		);
 		if (promoted) return; // already promoted (resume/reload)
 
-		const full = pi.getActiveTools();
-		const resolved = resolveBootstrap(full, BOOTSTRAP_TOOLS);
-		if (resolved.missing.length > 0) {
-			// Configuration error — fail safe, never strip tools silently.
-			logger.warn(
-				`[${EXT_NAME}] bootstrap tools missing from catalog: ${resolved.missing.join(", ")}; skipping filter`,
-			);
-			return;
-		}
-
-		narrowed.add(sid);
-		fullTools.set(sid, full);
-		await pi.setActiveTools(resolved.tools);
-		logger.info(
-			`[${EXT_NAME}] anchoring first request for ${ctx.model!.provider}/${ctx.model!.id}: ` +
-				`${resolved.tools.length}/${full.length} tools (${resolved.tools.join(", ")})`,
-		);
+		await applyBootstrap(ctx, "anchoring first request");
 	};
 
 	/**
@@ -273,23 +292,35 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.on("before_agent_start", async (event, ctx) => {
 		const cfg = loadConfig(ctx, logger);
-		await ensureNarrowed(ctx, cfg);
-		await reapplyNarrowed(ctx);
-		// Bootstrap-only persona (opt-in `persona: "minimal"`): the DSH
-		// minimal persona anchors the FIRST request (co-equal trajectory
-		// anchor). Once the session is promoted, omp assembles its own system
-		// prompt again so harness conventions (ask tool, AGENTS.md digest,
-		// skill reminders) return from request #2 on - mirroring the upstream
-		// context-injection restore. Default `persona: "host"` never touches
-		// omp's system prompt.
-		if (cfg.persona !== "minimal" || !isTarget(ctx.model, cfg)) return;
 		const sid = ctx.sessionManager.getSessionId();
-		if (!sid) return;
-		if (restored.has(sid)) return; // promoted this process
-		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
-			ctx.sessionManager.getBranch(),
-		);
-		if (promoted) return; // resumed already-promoted session
+		// Explicit `/minimal` arm takes precedence over the config path and
+		// applies regardless of target model; consumed one-shot here.
+		const explicit = !!sid && armed.has(sid);
+		if (explicit && sid) armed.delete(sid);
+
+		if (explicit) {
+			await applyBootstrap(ctx, "/minimal: anchoring request");
+		} else {
+			await ensureNarrowed(ctx, cfg);
+			await reapplyNarrowed(ctx);
+		}
+
+		// Bootstrap-only persona: the DSH minimal persona anchors the NEXT
+		// request (co-equal trajectory anchor) as the first line of context.
+		// Once the session promotes, omp assembles its own system prompt
+		// again so harness conventions (ask tool, AGENTS.md digest, skill
+		// reminders) return from request #2 on. Explicit `/minimal` always
+		// swaps; the config path (`persona: "minimal"`) requires a target
+		// model and an un-promoted session.
+		if (!explicit) {
+			if (cfg.persona !== "minimal" || !isTarget(ctx.model, cfg)) return;
+			if (!sid) return;
+			if (restored.has(sid)) return; // promoted this process
+			const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+				ctx.sessionManager.getBranch(),
+			);
+			if (promoted) return; // resumed already-promoted session
+		}
 		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
 	});
 
@@ -312,17 +343,46 @@ export default function (pi: ExtensionAPI) {
 		await ensureRestored(ctx, loadConfig(ctx, logger));
 	});
 
-	pi.on("session_shutdown", () => {		narrowed.clear();
+	pi.on("session_shutdown", () => {
+		narrowed.clear();
 		restored.clear();
 		fullTools.clear();
 		notified.clear();
+		armed.clear();
 		promotionMemo.clear();
 	});
+
+	pi.registerCommand("minimal", {
+		description:
+			"Anchor the next request: DSH minimal persona opens the context with bash/read only; omp's full system prompt and catalog return after the first exchange",
+		handler: async (_args, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
+			if (!sid) {
+				ctx.ui.notify("[anchored-tools] /minimal: no session id", "warning");
+				return;
+			}
+			armed.add(sid);
+			ctx.ui.notify(
+				"[anchored-tools] /minimal armed: the next request anchors (minimal persona + bash/read); omp prompt returns after the first exchange.",
+				"info",
+			);
+		},
+	});
+
+	// Test-only hook: -p headless mode does not process slash commands, so the
+	// armed path is exercised via this env var. Not user-facing.
+	if (process.env.ANCHORED_TOOLS_MINIMAL_ARM === "1") {
+		pi.on("session_start", async (_event, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
+			if (sid) armed.add(sid);
+		});
+	}
 
 	pi.registerCommand("anchored-tools", {
 		description:
 			"Show anchored tool bootstrap status (model targeting, current phase)",
 		handler: async (_args, ctx) => {
+			const sid = ctx.sessionManager.getSessionId();
 			const cfg = loadConfig(ctx, logger);
 			const model = ctx.model;
 			const matched = isTarget(model, cfg);
@@ -338,6 +398,7 @@ export default function (pi: ExtensionAPI) {
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
 				`persona: ${cfg.persona === "minimal" ? "minimal (bootstrap-only swap)" : "host (untouched)"}`,
+				`minimal armed (next request): ${sid && armed.has(sid) ? "yes" : "no"}`,
 				`current model: ${model ? `${model.provider}/${model.id}` : "n/a"}`,
 				`model matched: ${matched ? "yes" : "no"}`,
 				`phase: ${phase}`,
