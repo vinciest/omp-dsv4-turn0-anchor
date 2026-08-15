@@ -183,6 +183,29 @@ Planned feature: an opt-in `/minimal` command making the session's FIRST input t
 
 Design claim to verify interactively (not headless-testable): whether the `We need` mode crosses the task boundary into input1 under the host prompt. dsh's whole-session persistence (r1/r2: 179 `we` / 1 `let me` over 193 reasoning blocks) does not transfer - it holds because their one-liner never leaves; at omp the task runs under the host prompt, where the A/B measures host at 0/4.
 
+### Follow-up: `/anchor-*` commands and the first real quality measurement (2026-08-15)
+
+**Mechanism evolution after the plan.** The `/minimal` command went through three versions:
+
+- **v0.5.0 - pure trigger ping-pong**: the command arms the session and sends the upstream `ANCHOR_TEXT` (`"This round is a test. Tools are not open yet; all tools will open next round."`) via `sendUserMessage`. The anchor turn runs under the minimal persona with **zero tools**; the model can only "pong". The `We need` style must emerge from persona + zero tools, never from instructions - v0.4.3's directive prompt made the anchor turn do real work and was rejected as cheating. The pong's durable assistant message is the promotion signal: full catalog + omp's host system prompt return.
+- **Two bugs found and fixed**:
+  - v0.4.2: `reapplyNarrowed` overwrote the captured full catalog with the already-narrowed active set, so the restore returned the narrowed set ("restored session ... full catalog 2 tools"). Fix: never refresh the snapshot while narrowed.
+  - v0.5.1: the anchor turn's `message_end` restore raced the next request's serialization; the task request went out with the zero-tool state ~30ms before the restore, and the model emitted its tool call as XML text that was never executed (session `01a005d8`). Fix: `ensureRestored` also runs inside `before_agent_start`, before the request is assembled.
+- **v0.6.0 - collapse + two commands**: `/anchor-minimal` (minimal persona persists after promote) and `/anchor-builtin` (host prompt returns; the renamed `/minimal`). The ping-pong was removed: the arm transforms the next user input to `[ANCHOR_TEXT + task]` (`InputEventResult.text`), zero tools, first-response promote. The config-path anchor (bash/read first-request narrowing) is now gated on `persona: "minimal"`, so an unconfigured plugin is vanilla omp.
+
+**Upstream source correction (the collapse premise was wrong).** `zero-anchored-standard/anchor-turn.mjs` does NOT merge the anchor into the task: it prepends `ANCHOR_TEXT` to the **inbox** as a separate queued user message ahead of the real one. The flow is exactly the ping-pong: task typed once -> anchor turn `[ANCHOR_TEXT]` + zero tools -> generic pong -> promote -> the queued task runs automatically with tools. No tool-checking effort, no "continue" required. The v0.6.0 collapse (`[ANCHOR_TEXT + task]` in one request) produced the worst of both: the model read the contradiction (tools "not open" while the task asks to work), refused with a long explanation, and required a manual "continue" (session `01a0061f`). Ping-pong wins on noise/token/UX; the collapse's only theoretical edge (a persisted guess-plan made without tools) measured no value. **Recommendation: revert the commands to the `sendUserMessage` ping-pong shape.**
+
+**First real quality measurement (xiaobright/modeltest, Project2 v4.1b frozen benchmark).** The evaluator is fully deterministic (hidden tests + rubric scoring; no LLM in grading). Two runs with `deepseek-v4-flash` via omp + this plugin, cwd = `workspace/`, candidate prompt pasted after the anchor:
+
+| Scene | Setup | ability / ship | Blockers | Notes |
+|---|---|---|---|---|
+| 3 (host returns) | v0.5.0 ping-pong (race present) | 89.0 / 89.0 | S-ambient, E-contract | first turn burned by the 0.5.1 race; true level >= 89 |
+| 2 (minimal persists) | v0.6.0 `/anchor-minimal` collapse | 88.0 / 88.0 | P-report, S-ambient, E-contract | fixed one ESP-IDF contract item (esp_deploy 6.43 -> 7.14) but missed PR-template reporting (process_truth 10 -> 7.5) |
+
+- Delta is within noise (1 point). The persona-persistence difference (minimal end-to-end vs host returning) is **not a scoring lever** on this benchmark; the anchor itself lands ~1-3 points under the Flash opencode reference (~92).
+- The open design claim above is settled (session `01a005c2`): the `We need` ack under the minimal persona does **not** carry into the host-prompt task turn (the task said "Let me understand the task"), consistent with the A/B host=0/4. The flip tracks the system prompt, not session history.
+- Results: `evaluator/results/20260815_150235` (scene 3), `20260815_161849` (scene 2).
+
 ## References
 
 - `deepseek-ai/DeepSeek-V4-Flash-0731` model card (minimal-mode evaluation note)
