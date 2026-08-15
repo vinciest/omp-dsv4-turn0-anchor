@@ -56,7 +56,7 @@ import {
 	isPositiveInt,
 	isPromoted,
 	memoizedIsPromoted,
-	MINIMAL_ANCHOR_PROMPT,
+	ANCHOR_TEXT,
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
 	rewriteSystemPrompt,
@@ -216,10 +216,22 @@ export default function (pi: ExtensionAPI) {
 			changed = true;
 		}
 
-		// Serialized tool catalog; filterTools validates membership by name.
+		// Serialized tool catalog. The explicit `/minimal` anchor turn carries
+		// ZERO tools (upstream zero-anchored-standard condition): the model can
+		// only "pong". Otherwise filterTools validates membership by name.
 		const tools = payload.tools as ToolLike[] | undefined;
 		if (!Array.isArray(tools) || tools.length === 0)
 			return changed ? payload : undefined;
+
+		if (explicit) {
+			payload = { ...payload, tools: [] };
+			changed = true;
+			if (sid) anchoredSessions.set(sid, true);
+			console.log(
+				`[${EXT_NAME}] /minimal: anchor turn for ${ctx.model!.provider}/${ctx.model!.id}: 0 tools`,
+			);
+			return payload;
+		}
 
 		const result = filterTools(tools, BOOTSTRAP_TOOLS);
 		if (result.missing.length > 0) {
@@ -271,7 +283,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("minimal", {
 		description:
-			"Send the anchored turn: DSH minimal persona opens the context with bash/read only; pi's full system prompt and catalog return after this turn",
+			"Anchor trigger: sends the zero-tool ping-pong turn (minimal persona); the full pi system prompt and tool catalog return after it",
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
@@ -294,17 +306,17 @@ export default function (pi: ExtensionAPI) {
 			}
 			armed.add(sid);
 			console.log(
-				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchored turn`,
+				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchor ping-pong`,
 			);
 			ctx.ui.notify(
-				"[anchored-tools] /minimal: sending the anchored turn (minimal persona + bash/read); the full pi prompt returns after this turn.",
+				"[anchored-tools] /minimal: anchor trigger sent - the zero-tool ping-pong turn runs under the minimal persona; the full pi prompt and catalog return after it.",
 				"info",
 			);
-			// Send the anchored turn as a real user prompt: starts a turn when
-			// idle. before_provider_request consumes the arm (explicit path);
-			// the turn's own assistant message promotes, so the next input
-			// (the task) runs under the full environment.
-			pi.sendUserMessage(MINIMAL_ANCHOR_PROMPT);
+			// The anchor ping-pong: a stage-setting user message under the
+			// minimal persona with zero tools. The model can only respond
+			// "pong"; that assistant message is the promotion signal, after
+			// which the full catalog AND pi's own system prompt return.
+			pi.sendUserMessage(ANCHOR_TEXT);
 		},
 	});
 

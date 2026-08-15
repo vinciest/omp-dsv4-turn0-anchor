@@ -228,8 +228,15 @@ export function filterTools(
 export const MINIMAL_SYSTEM_PROMPT =
 	"You are a helpful software engineer assistant.";
 
-/** Replacement input: a real user message that produces the anchored turn. */
-export const MINIMAL_ANCHOR_PROMPT = `Anchored bootstrap turn (DSH minimal). You are a helpful software engineer assistant. State the working plan directly, opening with "We need ...", with no clarifying questions and no meta-commentary. Explore the project context with bash and read only. Keep the reply short: the plan plus the first exploration step.`;
+/**
+ * The zero-anchored-standard anchor message (byte-faithful to
+ * xiaobright/dsh-anchored-standard): a stage-setting notice, not an output
+ * directive. The model responds "pong" under the minimal persona with zero
+ * tools; the "we" trajectory emerges from that condition, never from
+ * instructions.
+ */
+export const ANCHOR_TEXT =
+	"This round is a test. Tools are not open yet; all tools will open next round.";
 
 export interface SystemPromptRewrite {
 	/** True when the payload was modified. */

@@ -63,7 +63,7 @@ import {
 	isPositiveInt,
 	isPromoted,
 	memoizedIsPromoted,
-	MINIMAL_ANCHOR_PROMPT,
+	ANCHOR_TEXT,
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
 	resolveBootstrap,
@@ -144,6 +144,8 @@ export default function (pi: ExtensionAPI) {
 	// Sessions with a pending `/minimal` arm (one-shot: consumed by the next
 	// before_agent_start).
 	const armed = new Set<string>();
+	// Sessions whose CURRENT request must carry zero tools (the anchor turn).
+	const zeroed = new Set<string>();
 	const logger = pi.logger;
 
 	const isTarget = (
@@ -256,6 +258,7 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		restored.add(sid);
+		zeroed.delete(sid);
 		await pi.setActiveTools(full);
 		logger.info(
 			`[${EXT_NAME}] restored session ${sid}: full catalog ${full.length} tools (${full.join(", ")})`,
@@ -279,6 +282,7 @@ export default function (pi: ExtensionAPI) {
 	const reapplyNarrowed = async (ctx: ExtensionContext) => {
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid || !narrowed.has(sid) || restored.has(sid)) return;
+		if (zeroed.has(sid)) return; // anchor turn: keep zero tools
 		const cfg = loadConfig(ctx, logger);
 		if (cfg.models.length === 0 || !isTarget(ctx.model, cfg)) return;
 		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
@@ -314,7 +318,15 @@ export default function (pi: ExtensionAPI) {
 		);
 
 		if (explicit) {
-			await applyBootstrap(ctx, "/minimal: anchoring request");
+			// Anchor turn: ZERO tools (upstream zero-anchored-standard
+			// condition). The model can only "pong" - it cannot call anything.
+			// The full catalog + omp's own system prompt return once this
+			// turn's assistant message is durable (the promotion signal).
+			if (sid) zeroed.add(sid);
+			await pi.setActiveTools([]);
+			logger.info(
+				`[${EXT_NAME}] /minimal: anchor turn for ${ctx.model?.provider ?? "?"}/${ctx.model?.id ?? "?"}: 0 tools`,
+			);
 		} else {
 			await ensureNarrowed(ctx, cfg);
 			await reapplyNarrowed(ctx);
@@ -368,12 +380,13 @@ export default function (pi: ExtensionAPI) {
 		fullTools.clear();
 		notified.clear();
 		armed.clear();
+		zeroed.clear();
 		promotionMemo.clear();
 	});
 
 	pi.registerCommand("minimal", {
 		description:
-			"Send the anchored turn: DSH minimal persona opens the context with bash/read only; omp's full system prompt and catalog return after this turn",
+			"Anchor trigger: sends the zero-tool ping-pong turn (minimal persona); the full omp system prompt and tool catalog return after it",
 		handler: async (_args, ctx) => {
 			const sid = ctx.sessionManager.getSessionId();
 			if (!sid) {
@@ -396,18 +409,17 @@ export default function (pi: ExtensionAPI) {
 			}
 			armed.add(sid);
 			logger.info(
-				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchored turn`,
+				`[${EXT_NAME}] /minimal: arming session ${sid} and sending the anchor ping-pong`,
 			);
 			ctx.ui.notify(
-				"[anchored-tools] /minimal: sending the anchored turn (minimal persona + bash/read); the full omp prompt returns after this turn.",
+				"[anchored-tools] /minimal: anchor trigger sent - the zero-tool ping-pong turn runs under the minimal persona; the full omp prompt and catalog return after it.",
 				"info",
 			);
-			// Send the anchored turn as a real user prompt: starts a turn when
-			// idle. before_agent_start consumes the arm (explicit path) and
-			// swaps the persona + narrows tools for this request; the turn's
-			// own assistant message promotes, so the next input (the task)
-			// runs under the full omp environment.
-			pi.sendUserMessage(MINIMAL_ANCHOR_PROMPT);
+			// The anchor ping-pong: a stage-setting user message under the
+			// minimal persona with zero tools. The model can only respond
+			// "pong"; that assistant message is the promotion signal, after
+			// which the full catalog AND omp's own system prompt return.
+			pi.sendUserMessage(ANCHOR_TEXT);
 		},
 	});
 
