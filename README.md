@@ -37,7 +37,7 @@ Both hosts (omp + pi) implement identical config semantics; pi's persona swap wa
 
 ### After the fork point (upstream `v0.4.2`)
 
-Upstream added task-aware routing after this fork diverged (`a1bc4a7`): task classification (`spec`/`react`/`weak`), per-mode personas and tool sets, and a `taskRouting` config key, then **defaulted it off** (`4c47c8c`) for "stable We need anchoring". That is upstream's own admission that extra machinery destabilizes the anchor - the same interference pattern this fork removes (measured: 9KB skill-catalog injection flips `We need` 81% -> 0%). This fork keeps the narrow bootstrap-only fix and does not port task routing.
+Upstream added task-aware routing and then defaulted it off for "stable We need anchoring". This fork keeps the narrow bootstrap-only fix and does not port it - commit-by-commit analysis and the evaluation checklist for future upstream commits: [docs/upstream-divergence.md](docs/upstream-divergence.md).
 
 ### Identity
 

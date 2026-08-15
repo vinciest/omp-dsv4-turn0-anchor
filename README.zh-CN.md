@@ -37,7 +37,7 @@ Bootstrap-only 是修复本身,不是折中:minimal 人设只用于第一个未�
 
 ### fork 分歧点之后(上游 `v0.4.2`)
 
-上游在本 fork 分歧后加入了 task-aware routing(`a1bc4a7`):任务分类(`spec`/`react`/`weak`)、按模式区分的人设与工具集、新增 `taskRouting` 配置键,随后又**把它默认关闭**(`4c47c8c`,理由是 "stable We need anchoring")。这等于上游自己承认:额外的机制会破坏锚定的稳定性 - 与本 fork 移除的干扰模式相同(实测:9KB skill-catalog 注入把 `We need` 从 81% 翻转为 0%)。本 fork 保留窄化的 bootstrap-only 修复,不移植 task routing。
+上游在本 fork 分歧后加入了 task-aware routing,随后又为 "stable We need anchoring" 将其默认关闭。本 fork 保留窄化的 bootstrap-only 修复,不移植 task routing - 逐提交分析与未来上游提交的评估清单见 [docs/upstream-divergence.md](docs/upstream-divergence.md)。
 
 ### 身份
 
