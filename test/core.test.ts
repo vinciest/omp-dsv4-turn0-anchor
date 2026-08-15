@@ -19,6 +19,7 @@ import {
 	SessionPromotionMemo,
 	DEFAULTS,
 	shouldRestoreFullCatalog,
+	shouldSwapMinimal,
 	toolName,
 } from "../src/core.ts";
 
@@ -700,5 +701,69 @@ describe("isPositiveInt", () => {
 		assert.equal(isPositiveInt(1.5), false);
 		assert.equal(isPositiveInt("1024"), false);
 		assert.equal(isPositiveInt(undefined), false);
+	});
+});
+
+describe("shouldSwapMinimal", () => {
+	const base = {
+		explicit: false,
+		persistMinimal: false,
+		persona: "host" as const,
+		isTarget: true,
+		restored: false,
+		promoted: false,
+	};
+	test("vanilla: host persona, unarmed, never swaps", () => {
+		assert.equal(shouldSwapMinimal(base), false);
+		assert.equal(shouldSwapMinimal({ ...base, restored: true }), false);
+		assert.equal(shouldSwapMinimal({ ...base, promoted: true }), false);
+	});
+	test("explicit anchored turn always swaps, regardless of everything else", () => {
+		assert.equal(
+			shouldSwapMinimal({ ...base, explicit: true, persona: "host" }),
+			true,
+		);
+		assert.equal(
+			shouldSwapMinimal({
+				...base,
+				explicit: true,
+				persona: "host",
+				restored: true,
+				promoted: true,
+				isTarget: false,
+			}),
+			true,
+		);
+	});
+	test("/anchor-minimal persist wins over promotion", () => {
+		assert.equal(shouldSwapMinimal({ ...base, persistMinimal: true }), true);
+		assert.equal(
+			shouldSwapMinimal({
+				...base,
+				persistMinimal: true,
+				restored: true,
+				promoted: true,
+				isTarget: false,
+			}),
+			true,
+		);
+	});
+	test("config path: minimal persona swaps only during the bootstrap phase", () => {
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "minimal" }),
+			true,
+		);
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "minimal", restored: true }),
+			false,
+		);
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "minimal", promoted: true }),
+			false,
+		);
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "minimal", isTarget: false }),
+			false,
+		);
 	});
 });

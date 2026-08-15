@@ -4,12 +4,12 @@ English | [中文](README.zh-CN.md)
 
 Fork of the `omp-pi-anchored-standard` extension (`anchored-tools`) for **omp** (Oh My Pi) and **pi** (pi-coding-agent), carrying a **validated, bootstrap-only persona fix** for DeepSeek V4 Flash/Pro and a trimmed, convention-over-configuration setting surface. Forked from upstream `973ca91`; upstream has since moved in a different direction and this fork intentionally does not track it (see [Divergence from upstream](#divergence-from-upstream)).
 
-The extension anchors a target model's **first request** to the same turn-0 scaffold the model was trained against (DeepSeek Harness `minimal` preset), then hands control back to the host:
+The extension anchors a session's **first request** to the same turn-0 scaffold the model was trained against (DeepSeek Harness `minimal` preset), then hands control back to the host:
 
-1. **First request** - only `bash` + `read` are exposed (on pi, output budget is capped at `bootstrapMaxTokens`, default 1024).
-2. **First durable promotion signal** (a tool call or an assistant message, whichever comes first) - the full tool catalog returns; if `persona: "minimal"` is set, the host system prompt returns too.
+1. **Config path** (`persona: "minimal"`): the first request exposes only `bash` + `read` (on pi, output budget is capped at `bootstrapMaxTokens`, default 1024). The first durable promotion signal (a tool call or an assistant message, whichever comes first) returns the full tool catalog, and the host system prompt returns too.
+2. **Command path** (`/anchor-builtin`, `/anchor-minimal`): the next input is transformed to `[ANCHOR_TEXT + task]` and runs with **zero tools** under the minimal persona; the first response (a text-only "pong") promotes the full catalog. `/anchor-builtin` then returns omp's builtin system prompt; `/anchor-minimal` keeps the minimal persona for the whole session.
 
-Zero config is functional: default target is the whole deepseek-v4-flash/pro family, host system prompt untouched.
+With `persona: "host"` (the default) and no command, the plugin is **vanilla omp** - no narrowing, no persona swap, no input rewriting.
 
 ## Why this fork exists
 
@@ -29,7 +29,7 @@ Bootstrap-only is the fix, not a compromise: minimal persona on the first unprom
 | Change | Upstream | This fork |
 | --- | --- | --- |
 | Persona scope | Permanent replacement | **Bootstrap-only**: minimal persona on the first unpromoted request, host system prompt restored after promotion (the validated fix) |
-| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **3 optional settings**: `models`, `persona`, `bootstrapMaxTokens`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; zero-tool mode removed |
+| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **3 optional settings**: `models`, `persona`, `bootstrapMaxTokens`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `[ANCHOR_TEXT + task]` anchor is available per-session via `/anchor-builtin` and `/anchor-minimal` |
 | Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "host" \| "minimal"`**, default **`"host"`** - the swap is a whole-prompt *replacement*, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
 | Default models | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - case-insensitive prefix globs, cross `/` (match `deepseek-v4-flash-0731`, `-free`, provider-qualified ids) |
 
@@ -126,13 +126,13 @@ or add to `~/.pi/agent/settings.json` `packages` and `/reload`:
 - Promotion decision is memoized per session id in-process; history is scanned once.
 - A bootstrap tool missing from the catalog is a **fail-safe**: filtering is skipped with a warning, tools are never silently stripped.
 - Non-target models are completely unaffected.
-- **Opt-in `/minimal`**: in a fresh session, run `/minimal` as the FIRST input - its request is anchored (DSH minimal persona as the first line of context, only `bash` + `read`). Then type the actual task as the second input: omp's full system prompt returns in the window between the two inputs (the promote), so the task runs with the complete omp environment (skills, tools, AGENTS.md, ask guidance). Default is pure host (no anchor) unless `/minimal` is run or `persona: "minimal"` is set.
+- **Opt-in commands** (run in a fresh session before the task): `/anchor-builtin` and `/anchor-minimal` arm the session. Your next message becomes the anchored request: `[ANCHOR_TEXT + task]` under the minimal persona with **zero tools** - the model can only acknowledge (the "pong"). The first response promotes the full tool catalog; because the anchored response is text-only, send one more message (e.g. "continue") to start work with the full catalog. `/anchor-builtin` returns omp's builtin system prompt after the anchor turn; `/anchor-minimal` keeps the minimal persona for the rest of the session. Default is pure host (no anchor) unless a command is run or `persona: "minimal"` is set.
 
 Host mechanics differ (behavior is the same): omp narrows/restores natively via `pi.setActiveTools()` (its `before_provider_request` replacement is discarded by the openai-completions transport); pi filters the payload in `before_provider_request`.
 
 ## Verification
 
-Run `/anchored-tools` in a session: reports target models, persona mode, minimal-armed state (`minimal armed (next request): yes|no`), current model, matched, and phase (`bootstrap` / `promoted (full catalog)` / `not-targeted`).
+Run `/anchored-tools` in a session: reports target models, persona mode, armed state (`minimal armed (next request): yes|no`), persist state (`minimal persists (session): yes|no`), current model, matched, and phase (`bootstrap` / `promoted (full catalog)` / `not-targeted`).
 
 First-request anchoring and persona swap log (omp via `pi.logger`, pi via console):
 

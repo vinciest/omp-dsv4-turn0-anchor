@@ -4,12 +4,12 @@
 
 `omp-pi-anchored-standard` 扩展(`anchored-tools`)的一个 fork,面向 **omp**(Oh My Pi)与 **pi**(pi-coding-agent),包含**经实测验证的 bootstrap-only 人设修复**(针对 DeepSeek V4 Flash/Pro),并把配置面精简到"约定优于配置"。基于上游 `973ca91`;上游此后走向了不同方向,本 fork 有意不跟随(见[与上游的差异](#与上游的差异))。
 
-扩展把目标模型的**第一个请求**锚定到模型训练时对应的 turn-0 scaffold(DeepSeek Harness `minimal` preset),随后把控制权交还宿主:
+扩展把会话的**第一个请求**锚定到模型训练时对应的 turn-0 scaffold(DeepSeek Harness `minimal` preset),随后把控制权交还宿主:
 
-1. **首请求** - 只暴露 `bash` + `read`(pi 侧输出预算封顶 `bootstrapMaxTokens`,默认 1024)。
-2. **第一个持久提升信号之后**(首个 tool call 或 assistant 消息,先到者为准)- 恢复完整工具目录;若设置了 `persona: "minimal"`,宿主系统提示也一并恢复。
+1. **配置路径**(`persona: "minimal"`):首请求只暴露 `bash` + `read`(pi 侧输出预算封顶 `bootstrapMaxTokens`,默认 1024)。第一个持久提升信号(首个 tool call 或 assistant 消息,先到者为准)恢复完整工具目录,宿主系统提示也一并恢复。
+2. **命令路径**(`/anchor-builtin`、`/anchor-minimal`):下一条输入被改写成 `[ANCHOR_TEXT + task]`,在 minimal 人设、**零工具**下运行;首个响应(纯文本 "pong")触发提升、恢复完整工具目录。`/anchor-builtin` 之后恢复 omp 内置系统提示;`/anchor-minimal` 则在整个会话里保持 minimal 人设。
 
-零配置即可用:默认锚定 deepseek-v4-flash/pro 全家族,不动宿主系统提示。
+`persona: "host"`(默认)且未运行命令时,插件就是**原生 omp** - 不收窄、不换人设、不改写输入。
 
 ## 为什么有这个 fork
 
@@ -29,7 +29,7 @@ Bootstrap-only 是修复本身,不是折中:minimal 人设只用于第一个未�
 | 变更 | 上游 | 本 fork |
 | --- | --- | --- |
 | 人设作用域 | 永久替换 | **Bootstrap-only**:minimal 人设只用于第一个未提升请求,提升后恢复宿主系统提示(经实测的修复) |
-| 配置面 | 9 项(`enabled`、`bootstrapTools`、`bootstrapMode`、`promoteOn`、`anchorText`、`notify`、`minimalSystemPrompt`、`models`、`bootstrapMaxTokens`) | **3 项可选配置**:`models`、`persona`、`bootstrapMaxTokens`。bootstrap 工具固定为 `bash`+`read`;提升信号固定为 `either`;零工具模式移除 |
+| 配置面 | 9 项(`enabled`、`bootstrapTools`、`bootstrapMode`、`promoteOn`、`anchorText`、`notify`、`minimalSystemPrompt`、`models`、`bootstrapMaxTokens`) | **3 项可选配置**:`models`、`persona`、`bootstrapMaxTokens`。bootstrap 工具固定为 `bash`+`read`;提升信号固定为 `either`;零工具 `[ANCHOR_TEXT + task]` 锚定通过 `/anchor-builtin` 与 `/anchor-minimal` 按会话启用 |
 | 配置名 | `minimalSystemPrompt`(暗示"裁剪") | **`persona: "host" \| "minimal"`**,默认 **`"host"`** - 该开关是整体*替换*,而 "minimal" 是 DeepSeek Harness 的模式,不是本扩展的模式。默认不做替换(omp 优先:想要完整 minimal 体验直接用 dsh) |
 | 默认模型 | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - 大小写不敏感前缀通配,可跨 `/`(匹配 `deepseek-v4-flash-0731`、`-free`、provider 限定 id) |
 
@@ -126,13 +126,13 @@ pi install github:vinciest/omp-dsv4-turn0-anchor
 - 提升决策按会话 id 在进程内记忆,历史只扫描一次。
 - bootstrap 工具在目录中缺失 → **fail-safe**:跳过过滤并告警,绝不静默剥工具。
 - 非目标模型完全不受影响。
-- **可选 `/minimal`**:在新会话里把 `/minimal` 作为**第一个输入** - 它的请求被锚定(DSH minimal 人设作为上下文首行,只有 `bash` + `read`)。然后用第二个输入描述真正的任务:两个输入之间的窗口里 omp 完整系统提示会回来(即 promote),任务在完整 omp 环境(技能、工具、AGENTS.md、ask 指引)下运行。默认是纯 host(不锚定),除非运行了 `/minimal` 或配置了 `persona: "minimal"`。
+- **可选命令**(在任务前的新会话里运行):`/anchor-builtin` 与 `/anchor-minimal` 使会话待命。你的下一条消息成为锚定请求:`[ANCHOR_TEXT + task]`、minimal 人设、**零工具** - 模型只能回应("pong")。首个响应触发提升、恢复完整工具目录;由于锚定响应是纯文本,再发一条消息(如 "continue")即可在完整工具目录下开工。`/anchor-builtin` 在锚定回合后恢复 omp 内置系统提示;`/anchor-minimal` 在整个会话里保持 minimal 人设。默认是纯 host(不锚定),除非运行了命令或配置了 `persona: "minimal"`。
 
 宿主机制不同(行为一致):omp 通过 `pi.setActiveTools()` 原生收窄/恢复(其 `before_provider_request` 返回值会被 openai-completions 传输层丢弃);pi 在 `before_provider_request` 里过滤 payload。
 
 ## 验证
 
-会话里跑 `/anchored-tools`:报告目标模型、persona 模式、`/minimal` 待命状态(`minimal armed (next request): yes|no`)、当前模型、是否命中、阶段(`bootstrap` / `promoted (full catalog)` / `not-targeted`)。
+会话里跑 `/anchored-tools`:报告目标模型、persona 模式、待命状态(`minimal armed (next request): yes|no`)、持久状态(`minimal persists (session): yes|no`)、当前模型、是否命中、阶段(`bootstrap` / `promoted (full catalog)` / `not-targeted`)。
 
 首次锚定与人设替换会打日志(omp 走 `pi.logger`,pi 走 console):
 
