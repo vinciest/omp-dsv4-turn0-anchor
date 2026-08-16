@@ -150,6 +150,30 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 
 **Reporting honesty**: all four recorded debug commands + ESP status + honesty markers (未验证/无法/失败/未运行) in the PR template; no fabricated claims. The 87-89 spread was a reporting-completeness artifact (F1 8.0 vs 6.0); scene 4 re-passed F1-01 and additionally fixed the one real code item that failed all prior runs (F3-05 `ambient_session`, 5 pts).
 
+### 9.2 Methodology: evaluate / analyze / compare
+
+**Evaluate (the modeltest run protocol).** One scene = reset + run + score:
+
+1. Reset the workspace: `python3 evaluator/make_broken_project.py` from `/Users/td/@/v/modeltest` - re-seeds `workspace/project2_task` from the broken seed AND re-initializes the git repo (without it, `candidate_diff.patch` is not collected).
+2. Launch interactive omp with the plugin loaded, cwd = `modeltest/workspace/`; run the scene's `/anchor-*` command first; paste `CANDIDATE_PROMPT.md`; let the agent work. The candidate must never see `evaluator/`, `docs/`, or the results dirs.
+3. Score with the frozen evaluator:
+   `python3 evaluator/run_full_eval.py workspace/project2_task --require-meta --model deepseek-v4-flash --channel opencode-go --harness <scene> --thinking-level high --run-group-id <id> --run-index 1`
+   Scoring is fully deterministic (hidden tests + rubric, no LLM in grading). Results land in `evaluator/results/<timestamp>/`. Key artifacts: `score_draft.json` (`ability_draft`/`ship_draft`, `family_draft`, `item_results` with per-item status + blocker), `hidden_summary.json`, `espidf_static_summary.json`, `dimensions.json`, `blockers.json`, `candidate_diff.patch`, `pull_request_template.md`. Harness labels used: `omp-vanilla`, `omp-anchor-minimal-persist`, `omp-anchored-minimal`, `omp-anchor-minimal-pingpong`.
+
+**Analyze (session + log forensics).** Sources:
+
+- **Session transcript**: `~/.omp/agent/sessions/<workspace>/<ts>_<sid>.jsonl`. Message records carry per-request `usage` (`input` = NEW tokens - cacheRead is separate, `output`, `cacheRead`, `cacheWrite`; `totalTokens = input+output+cacheRead+cacheWrite`). `custom` records are `tool_execution_start` (tool name + args, in call order).
+- **Plugin log markers**: `~/.omp/logs/omp.<date>.<pid>.log` - `before_agent_start sid=... anchorMode=... persona=... target=...`, `/anchor: anchor turn for ...: 0 tools`, `restored session <sid>: full catalog N tools`, `session shutdown: clearing armed=[...] toolsOnly=[...] persistMinimal=[...]`. These verify the mechanism end-to-end (arm -> zero-tool turn -> restore before the task serializes -> persist held).
+- **Voice**: extract assistant `thinking` blocks from the JSONL; count `\b[Ww]e\b` and `[Ll]et me\b` per block. The A3 signature is exactly one transient `let me` at the task start, then the We-voice holds.
+- **Trajectory shape**: from `tool_execution_start` order - first `todo` index (plan-first vs explore-first), test re-runs (bash calls matching test/pytest/nextest/...), edit vs write counts (surgical vs rewrite), mandated-flow compliance (first test-run index < first edit index).
+- **Reasoning economy**: median `input` per assistant request, total new input, total output, wall time (first to last message timestamp).
+
+**Compare (the cross-run matrix).** All runs share the frozen registry (F1-F12, `V4-*` item ids, same `family_max`), so `item_results` statuses are directly comparable - a run's delta is exactly the set of newly-passed/failed items, and each has a named blocker (P-report, S-ambient, E-contract) or a family. Dimensions (`dimensions.json`) and the multi-dimensional tables (voice, trajectory, economy) add the process view.
+
+**Attribution rules** (why scenes 1-3 were score-flat and scene 4 is not): n=1 per configuration; F1/PR-template items are known-variance (reporting completeness, not code); a blocker item that fails every run is structural; a pass that no other run achieved (F3-05) is the only item-level evidence of a real delta. Process effects (voice, economy, clean start) are mechanism-verified from logs + transcripts and are the durable claims; the point spread is bounded by the item set.
+
+**Known data-retention caveats**: omp prunes session dirs (the scene 1-3 transcripts were deleted after the runs - their economy numbers survive only in this doc); the arh controller proxy logs were not available for the omp traffic (token usage came from the session JSONL, not the proxy); the evaluator's registry updated between runs is not an issue here - all four ran the same frozen v4.1b registry (verified: same `family_max`).
+
 ## 10. Conclusions
 
 - **Engineering quality is flat across all four**: `final_code` 10.0 everywhere, the same two structural gaps (F12-04, F8-03) in every run, same mandated-flow compliance. The anchor does not make the model smarter on this benchmark.
