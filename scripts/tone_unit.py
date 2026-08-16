@@ -26,6 +26,15 @@ Controls: classify the thinking block (reasoning_content, else content);
 n=3 by default with an all-agree verdict threshold; the conditioning message
 contains neither "we" nor "let me" so nothing primes the signal words.
 
+PROMPT HYGIENE (hard rule): the probe's model-visible texts MUST NOT instruct
+the voice. No "use we", "avoid let me", "we-voice", or any directive about how
+to phrase the CoT - the tone must EMERGE from persona x tools x conditioning
+text, or the unit measures nothing (it would be grading the instruction, not
+the model). The defaults are byte-faithful and directive-free: the harness
+minimal persona and the upstream ANCHOR_TEXT. A banned-phrase scan (`BANNED`)
+runs over the assembled system message + both user texts and reports any
+violation in the result's `hygiene` field - a hit invalidates the observation.
+
 Endpoint: OpenAI-compatible /v1/chat/completions (the arh proxy plane binds
 127.0.0.1:4000 by default; override with --base-url / ARH_BASE_URL and
 --api-key / ARH_API_KEY - a routing token). Offline classifier check with
@@ -76,6 +85,16 @@ EXPECTED = {
     ("host", "any", 1): "other",
     ("host", "full", 2): "let-me",
 }
+
+# Voice-directive phrases that would invalidate an observation (prompt
+# hygiene: the tone must emerge, never be instructed).
+BANNED = [
+    "we-voice", "we voice", "let-me voice", "let me voice",
+    "use we", "say we", "speak as we",
+    "don't say let me", "do not say let me", "never say let me",
+    "avoid let me", "avoid \"let me\"", "instead of let me",
+    "we tone", "let-me tone", "respond as we",
+]
 
 
 def classify_text(text: str) -> str:
@@ -170,6 +189,12 @@ def main():
 
     system, persona_kind = build_system(args.persona, args.system_file)
     tools2 = build_tools(args.tools, args.tools_file)
+    hygiene = [p for p in BANNED
+               if p in (system + "\n" + args.msg + "\n" + args.task_text)]
+    if hygiene:
+        print(f"[tone-unit] HYGIENE VIOLATION ({len(hygiene)} directive(s) found): "
+              f"{hygiene} - this observation would grade the instruction, not the "
+              f"model; the run is flagged, not aborted", file=sys.stderr)
     base_url = args.base_url or os.environ.get("ARH_BASE_URL", "http://127.0.0.1:4000/v1")
     api_key = args.api_key or os.environ.get("ARH_API_KEY")
 
@@ -178,7 +203,8 @@ def main():
         turns.append((2, args.task_text, tools2))
 
     result = {"model": args.model, "persona": persona_kind, "tools_turn2": args.tools,
-              "observations": args.n, "turns": {}}
+              "observations": args.n, "hygiene": {"violations": hygiene,
+                                                  "ok": not hygiene}, "turns": {}}
     for turn, msg, tools in turns:
         blocks = []
         for _ in range(args.n):
