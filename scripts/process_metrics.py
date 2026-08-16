@@ -40,6 +40,7 @@ from pathlib import Path
 ANCHOR_TEXT = "This round is a test."
 WE_RE = re.compile(r"\b[Ww]e\b")
 LETME_RE = re.compile(r"\b[Ll]et me\b")
+WAIT_RE = re.compile(r"\bwait\b")  # self-check oscillation (verbatim CoT, not await)
 TEST_RE = re.compile(r"run_public_tests|run_debug_probe|run_espidf|\bpytest\b")
 SCRIPTS_ONLY = {"F1", "F9", "F11"}  # template / env-skipped / docs heuristic
 
@@ -148,12 +149,15 @@ def main():
             assistant, tools, user_turns, wall = load_session(spath)
             # --- voice ---
             voice_blocks = []
-            we_total = letme_total = 0
+            we_total = letme_total = wait_total = wait_blocks = 0
             for b in assistant:
                 w = len(WE_RE.findall(b["think"]))
                 l = len(LETME_RE.findall(b["think"]))
+                wt = len(WAIT_RE.findall(b["think"]))
                 we_total += w
                 letme_total += l
+                wait_total += wt
+                wait_blocks += 1 if wt else 0
                 voice_blocks.append([w, l])
             # first task-turn block = first assistant block after the first
             # user-typed (task) message - skips the anchor pong
@@ -170,6 +174,8 @@ def main():
                 "class": classify_voice(we_total, letme_total),
                 "we_total": we_total,
                 "letme_total": letme_total,
+                "wait_total": wait_total,
+                "wait_blocks_n": wait_blocks,
                 "blocks_n": len(assistant),
                 "first_task_block": task_block,
                 "a3_signature": we_total >= 50 and 1 <= letme_total <= 3,

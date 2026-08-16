@@ -2,6 +2,11 @@
 """Tone unit - the smallest reproducible probe for the "We ..." vs "let me"
 voice question (docs/turn0-anchor-validation.md 9.2, V1/V2 vocabulary of 3.1).
 
+The classes are SYMPTOMS of a CoT kind, not tone preferences: `We` = the
+committed path (confident, single-route execution); `let me` + `wait` = the
+verification loop (the model re-checks its reasoning repeatedly). The probe
+reports which CoT kind a persona+tools cell produces.
+
 One chat-completions request per observation: temperature 0, model pinned,
 system = the candidate persona, tools = the cell's tool surface, user = the
 conditioning message. Classifies the response's thinking block.
@@ -61,6 +66,7 @@ ANCHOR_TEXT = "This round is a test. Tools are not open yet; all tools will open
 
 WE_RE = re.compile(r"\b[Ww]e\b")
 LETME_RE = re.compile(r"\b[Ll]et me\b")
+WAIT_RE = re.compile(r"\bwait\b")  # self-check oscillation signal
 
 TOOLS_MINIMAL = [
     {"type": "function", "function": {
@@ -209,12 +215,14 @@ def main():
         blocks = []
         for _ in range(args.n):
             text = call_model(base_url, api_key, args.model, system, msg, tools, args.timeout)
-            blocks.append({"text": text, "class": classify_text(text)})
+            blocks.append({"text": text, "class": classify_text(text),
+                           "wait": len(WAIT_RE.findall(text))})
         verdict = classify_blocks(blocks)
         result["turns"][str(turn)] = {
             "tools": "none" if tools is None else args.tools,
             "message": msg, "verdict": verdict["verdict"], "agreement": verdict["agreement"],
-            "per_run": [b["class"] for b in blocks],
+            "per_run": [b["class"] + (f"+w{b['wait']}" if b["wait"] else "") for b in blocks],
+            "wait_total": sum(b["wait"] for b in blocks),
             "first_sentences": [re.split(r"[.\n]", b["text"])[0][:80] for b in blocks],
         }
         key = (persona_kind, "any" if tools is not None else "none", turn)
