@@ -21,13 +21,17 @@
  *     minimal persona on every target-model request - a pure whole-session
  *     swap with the full tool catalog (no anchor turn, no narrowing). Default
  *     `persona: "host"` never touches omp's system prompt.
- *   - commands: `/anchor-builtin` and `/anchor-minimal` arm the session and
- *     send the upstream ANCHOR_TEXT via `sendUserMessage` (the ping-pong
- *     turn - upstream `anchor-turn.mjs` prepends the anchor to the inbox the
- *     same way). The ping-pong runs with zero tools under the minimal
- *     persona; the first response promotes the full catalog.
- *     `/anchor-builtin` then returns omp's builtin system prompt;
- *     `/anchor-minimal` keeps the minimal persona for the whole session.
+ *   - commands: `/anchor-builtin`, `/anchor-minimal` and
+ *     `/anchor-tools-only` arm the session and send the upstream ANCHOR_TEXT
+ *     via `sendUserMessage` (the ping-pong turn - upstream `anchor-turn.mjs`
+ *     prepends the anchor to the inbox the same way). The ping-pong runs
+ *     with zero tools under the minimal persona (`/anchor-builtin`,
+ *     `/anchor-minimal`) or under omp's original system prompt
+ *     (`/anchor-tools-only` - the report finding: zero tools, not the
+ *     persona, is the no-let-me trigger); the first response promotes the
+ *     full catalog. `/anchor-builtin` then returns omp's builtin system
+ *     prompt; `/anchor-minimal` keeps the minimal persona for the whole
+ *     session.
  *   - restore: tool_call / message_end → `setActiveTools(full)` once the
  *     session is promoted, before the next request serializes;
  *   - the phase is derived from durable session entries via
@@ -78,6 +82,7 @@ import {
 	SessionPromotionMemo,
 	shouldRestoreFullCatalog,
 	shouldSwapMinimal,
+	AnchorMode,
 	type Config,
 	type RawConfig,
 } from "./core";
@@ -153,6 +158,9 @@ export default function (pi: ExtensionAPI) {
 	// Sessions with a pending `/anchor-*` arm (one-shot: consumed by the next
 	// before_agent_start, which is the ping-pong turn the command triggers).
 	const armed = new Set<string>();
+	// `/anchor-tools-only` sessions (read only on the armed turn: keep omp's
+	// original system prompt - only the tools are zeroed).
+	const toolsOnly = new Set<string>();
 	// Sessions whose CURRENT request must carry zero tools (the anchor turn).
 	const zeroed = new Set<string>();
 	// `/anchor-minimal` sessions: keep the minimal persona for the whole
@@ -260,8 +268,16 @@ export default function (pi: ExtensionAPI) {
 		// consumed one-shot here.
 		const explicit = !!sid && armed.has(sid);
 		if (explicit && sid) armed.delete(sid);
+		const anchorMode: AnchorMode | undefined = explicit
+			? toolsOnly.has(sid)
+				? "tools-only"
+				: persistMinimal.has(sid)
+					? "minimal"
+					: "builtin"
+			: undefined;
+		if (explicit && sid) toolsOnly.delete(sid);
 		logger.debug(
-			`[${EXT_NAME}] before_agent_start sid=${sid ?? "none"} explicit=${explicit} ` +
+			`[${EXT_NAME}] before_agent_start sid=${sid ?? "none"} anchorMode=${anchorMode ?? "none"} ` +
 				`persona=${cfg.persona} target=${isTarget(ctx.model, cfg)} armedSize=${armed.size}`,
 		);
 
@@ -269,8 +285,8 @@ export default function (pi: ExtensionAPI) {
 			// Anchor turn: ZERO tools (upstream zero-anchored-standard
 			// condition). The model can only "pong" - it cannot call anything.
 			// The full catalog (and, for /anchor-builtin, omp's own system
-			// prompt) return once this turn's assistant message is durable
-			// (the promotion signal).
+			// prompt; /anchor-tools-only never swaps the prompt) return once
+			// this turn's assistant message is durable (the promotion signal).
 			if (sid) zeroed.add(sid);
 			await pi.setActiveTools([]);
 			logger.info(
@@ -287,7 +303,9 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Minimal-persona swap decision (see shouldSwapMinimal):
-		//  - anchored turn (explicit): always minimal;
+		//  - anchored turn: minimal for /anchor-builtin + /anchor-minimal,
+		//    omp's original prompt for /anchor-tools-only (zero tools, not
+		//    the persona, is the no-let-me trigger);
 		//  - /anchor-minimal: minimal for the whole session (persistMinimal);
 		//  - config path (persona: "minimal"): pure whole-session swap for
 		//    target models - full tools, no anchor turn;
@@ -295,7 +313,7 @@ export default function (pi: ExtensionAPI) {
 		const persist = !!sid && persistMinimal.has(sid);
 		if (
 			!shouldSwapMinimal({
-				explicit,
+				anchorMode,
 				persistMinimal: persist,
 				persona: cfg.persona,
 				isTarget: isTarget(ctx.model, cfg),
@@ -328,14 +346,15 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		logger.info(
 			`[${EXT_NAME}] session shutdown: clearing armed=[${[...armed].join(", ")}] ` +
-				`narrowed=[${[...narrowed].join(", ")}] restored=[${[...restored].join(", ")}] ` +
-				`persistMinimal=[${[...persistMinimal].join(", ")}]`,
+				`toolsOnly=[${[...toolsOnly].join(", ")}] narrowed=[${[...narrowed].join(", ")}] ` +
+				`restored=[${[...restored].join(", ")}] persistMinimal=[${[...persistMinimal].join(", ")}]`,
 		);
 		narrowed.clear();
 		restored.clear();
 		fullTools.clear();
 		notified.clear();
 		armed.clear();
+		toolsOnly.clear();
 		zeroed.clear();
 		persistMinimal.clear();
 		promotionMemo.clear();
@@ -345,14 +364,15 @@ export default function (pi: ExtensionAPI) {
 	// full catalog (narrowed/fullTools) so the post-promotion restore has a
 	// target (with the host persona default the plugin is vanilla omp until
 	// a command arms it). Then sends the upstream ANCHOR_TEXT via
-	// sendUserMessage: that turn runs with zero tools under the minimal
-	// persona, the model can only "pong", and the pong's durable assistant
-	// message is the promotion signal - the full catalog (and, for
-	// /anchor-builtin, omp's builtin system prompt) return before the user's
-	// next message (the task) serializes.
+	// sendUserMessage: that turn runs with zero tools (under the minimal
+	// persona for /anchor-builtin + /anchor-minimal, under omp's original
+	// system prompt for /anchor-tools-only), the model can only "pong", and
+	// the pong's durable assistant message is the promotion signal - the full
+	// catalog (and, for /anchor-builtin, omp's builtin system prompt) return
+	// before the user's next message (the task) serializes.
 	const armAnchor = async (
 		ctx: ExtensionContext,
-		mode: "minimal" | "builtin",
+		mode: AnchorMode,
 	) => {
 		const sid = ctx.sessionManager.getSessionId();
 		if (!sid) {
@@ -375,6 +395,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		armed.add(sid);
 		if (mode === "minimal") persistMinimal.add(sid);
+		if (mode === "tools-only") toolsOnly.add(sid);
 		if (!narrowed.has(sid)) {
 			fullTools.set(sid, pi.getActiveTools());
 			narrowed.add(sid);
@@ -382,12 +403,13 @@ export default function (pi: ExtensionAPI) {
 		logger.info(
 			`[${EXT_NAME}] /anchor-${mode}: arming session ${sid} and sending the anchor ping-pong`,
 		);
-		ctx.ui.notify(
+		const notify =
 			mode === "minimal"
 				? "[anchored-tools] /anchor-minimal armed. Anchor ping-pong sent: the next turn runs ANCHOR_TEXT under the minimal persona with zero tools; the full tool catalog returns and the minimal persona stays for the rest of the session. Then send the task."
-				: "[anchored-tools] /anchor-builtin armed. Anchor ping-pong sent: the next turn runs ANCHOR_TEXT under the minimal persona with zero tools; the full tool catalog and omp's builtin system prompt return after it. Then send the task.",
-			"info",
-		);
+				: mode === "tools-only"
+					? "[anchored-tools] /anchor-tools-only armed. Anchor ping-pong sent: the next turn runs ANCHOR_TEXT under omp's original system prompt with zero tools; the full tool catalog returns after it. Then send the task."
+					: "[anchored-tools] /anchor-builtin armed. Anchor ping-pong sent: the next turn runs ANCHOR_TEXT under the minimal persona with zero tools; the full tool catalog and omp's builtin system prompt return after it. Then send the task.";
+		ctx.ui.notify(notify, "info");
 		pi.sendUserMessage(ANCHOR_TEXT);
 	};
 
@@ -404,6 +426,14 @@ export default function (pi: ExtensionAPI) {
 			"Anchor trigger: sends the zero-tool ANCHOR_TEXT ping-pong under the minimal persona; the full tool catalog and omp's builtin system prompt return after it",
 		handler: async (_args, ctx) => {
 			await armAnchor(ctx, "builtin");
+		},
+	});
+
+	pi.registerCommand("anchor-tools-only", {
+		description:
+			"Anchor trigger: sends the zero-tool ANCHOR_TEXT ping-pong under omp's original system prompt; the full tool catalog returns after it",
+		handler: async (_args, ctx) => {
+			await armAnchor(ctx, "tools-only");
 		},
 	});
 
@@ -437,7 +467,7 @@ export default function (pi: ExtensionAPI) {
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
 				`persona: ${cfg.persona === "minimal" ? "minimal (pure whole-session swap, full tools)" : "host (untouched)"}`,
-				`minimal armed (next request): ${sid && armed.has(sid) ? "yes" : "no"}`,
+				`minimal armed (next request): ${sid && armed.has(sid) ? (toolsOnly.has(sid) ? "yes (tools-only)" : "yes") : "no"}`,
 				`minimal persists (session): ${sid && persistMinimal.has(sid) ? "yes" : "no"}`,
 				`current model: ${model ? `${model.provider}/${model.id}` : "n/a"}`,
 				`model matched: ${matched ? "yes" : "no"}`,

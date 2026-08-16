@@ -350,10 +350,18 @@ export function isPersonaMode(value: unknown): value is PersonaMode {
 	return value === "host" || value === "minimal";
 }
 
+/** Anchor-turn persona mode for the /anchor-* commands. */
+export type AnchorMode = "minimal" | "builtin" | "tools-only";
+
 /** Inputs to the minimal-persona swap decision (see shouldSwapMinimal). */
 export interface SwapDecision {
-	/** The current request is the anchored turn (explicit /anchor-* arm). */
-	explicit: boolean;
+	/**
+	 * The current request is the anchored turn, and which command armed it:
+	 * `minimal` / `builtin` swap the anchor turn to the minimal persona,
+	 * `tools-only` keeps omp's original system prompt (only the tools are
+	 * zeroed - the trigger is the tool state, not the persona).
+	 */
+	anchorMode: AnchorMode | undefined;
 	/** `/anchor-minimal` mode: keep the minimal persona for the whole session. */
 	persistMinimal: boolean;
 	persona: PersonaMode;
@@ -362,7 +370,10 @@ export interface SwapDecision {
 
 /**
  * Whether the next request's system prompt must be the DSH minimal persona:
- *  - the anchored turn (explicit `/anchor-*` arm) is always minimal;
+ *  - the anchored turn swaps to minimal only for `/anchor-builtin` and
+ *    `/anchor-minimal`; `/anchor-tools-only` keeps omp's original system
+ *    prompt (the report finding: zero tools, not the persona, is the trigger
+ *    for the no-let-me CoT);
  *  - `/anchor-minimal` keeps the minimal persona for the whole session
  *    (persistMinimal);
  *  - the config path (`persona: "minimal"`) is a pure whole-session swap for
@@ -371,7 +382,7 @@ export interface SwapDecision {
  *  - otherwise the host system prompt is untouched.
  */
 export function shouldSwapMinimal(d: SwapDecision): boolean {
-	if (d.explicit) return true;
+	if (d.anchorMode === "minimal" || d.anchorMode === "builtin") return true;
 	if (d.persistMinimal) return true;
 	if (d.persona === "minimal" && d.isTarget) return true;
 	return false;

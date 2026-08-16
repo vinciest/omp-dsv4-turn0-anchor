@@ -706,7 +706,7 @@ describe("isPositiveInt", () => {
 
 describe("shouldSwapMinimal", () => {
 	const base = {
-		explicit: false,
+		anchorMode: undefined as "minimal" | "builtin" | "tools-only" | undefined,
 		persistMinimal: false,
 		persona: "host" as const,
 		isTarget: true,
@@ -718,19 +718,34 @@ describe("shouldSwapMinimal", () => {
 			false,
 		);
 	});
-	test("explicit anchored turn always swaps, regardless of everything else", () => {
+	test("anchored turn swaps for /anchor-minimal and /anchor-builtin, regardless of everything else", () => {
 		assert.equal(
-			shouldSwapMinimal({ ...base, explicit: true, persona: "host" }),
+			shouldSwapMinimal({ ...base, anchorMode: "minimal", persona: "host" }),
 			true,
 		);
 		assert.equal(
 			shouldSwapMinimal({
 				...base,
-				explicit: true,
+				anchorMode: "builtin",
 				persona: "host",
 				isTarget: false,
 			}),
 			true,
+		);
+	});
+	test("/anchor-tools-only keeps omp's original system prompt on the anchor turn", () => {
+		assert.equal(
+			shouldSwapMinimal({ ...base, anchorMode: "tools-only" }),
+			false,
+		);
+		assert.equal(
+			shouldSwapMinimal({
+				...base,
+				anchorMode: "tools-only",
+				persona: "host",
+				isTarget: false,
+			}),
+			false,
 		);
 	});
 	test("/anchor-minimal persist wins over everything", () => {
