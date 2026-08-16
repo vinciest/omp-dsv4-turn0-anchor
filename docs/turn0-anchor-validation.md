@@ -176,10 +176,10 @@ The minimal persona's signature: tight verification + surgical edits + the We-vo
 
 | | vanilla | minimal collapse | host-return | ping+persist | tools-only |
 |---|---|---|---|---|---|
-| median input/request | 601 | **171** | 767 | 288 | 835 |
-| total new input | 186k | 132k | 169k | **107.6k** | 164k |
-| total output | 92.9k | **58.8k** | 94.5k | 64.0k | 98.2k |
-| wall time | 18.6 min | 18.0 min | 21.6 min | **12.2 min** | 15.2 min |
+| median new input tks/req | 601 | **171** | 767 | 288 | 835 |
+| total new input tks | 186k | 132k | 169k | **107.6k** | 164k |
+| total output tks | 92.9k | **58.8k** | 94.5k | 64.0k | 98.2k |
+| wall (min, active span) | 18.6 | 18.0 | 21.6 | **12.2** | 15.2 |
 
 Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the odd one: the host prompt *returning* correlated with the *longest* thinking (767 median) and the slowest run (21.6 min) - the host prompt's elaborate style drives verbosity, not the anchor. Scene 4 is the tightest overall: lowest total new input (107.6k), second-lowest output (64.0k), and the fastest run (12.2 min, 98 requests) - the ping-pong shape removes the collapse's refusal round-trip and the persisted minimal persona keeps the request economy without a zero-tool first turn. Scene 5 (tools-only) is squarely in the host band on every economy metric (median 835, 164k new input, 15.2 min): the zero-tool ritual contributes nothing to the task-turn economy - persona does. Wall time = active span (first to last assistant message, excluding the idle tail of a session left open).
 
@@ -204,7 +204,7 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 - **Voice**: extract assistant `thinking` blocks from the JSONL; count `\b[Ww]e\b` and `[Ll]et me\b` per block. The A3 signature is exactly one transient `let me` at the task start, then the We-voice holds.
 - **Trajectory shape**: from `tool_execution_start` order - first `todo` index (plan-first vs explore-first), test re-runs (bash calls matching `run_public_tests`/`run_debug_probe`/`run_espidf`/`pytest`), edit vs write counts (surgical vs rewrite), mandated-flow compliance (first test-run index < first edit index).
 - **Reasoning economy**: median `input` per assistant request, total new input, total output, wall time (active span: first to last assistant message - excludes the idle tail of a session left open after the final response).
-- **Automated emitter**: `scripts/process_card.py --results <results-dir> --session <session.jsonl>` (fork repo) computes all of the above plus the score linkage and writes `process_card.json` into the results dir. It never mutates the frozen evaluator's artifacts. Sidecar fields: `score.stripped_ability` (ability minus F1/F9/F11 - template/env/docs-heuristic), `voice.class` (we-trajectory / let-me / neutral, thresholds calibrated on the five scenes), `economy` (requests, median input, totals, active wall span), `trajectory` (todo/edit/test indices, edit/write), `efficiency` (stripped ability per k new input tokens).
+- **Automated emitter**: `scripts/process_card.py --results <results-dir> --session <session.jsonl>` (fork repo) computes all of the above plus the score linkage and writes `process_card.json` into the results dir. It never mutates the frozen evaluator's artifacts. Sidecar fields: `score.stripped_ability` (ability minus F1/F9/F11 - template/env/docs-heuristic), `voice.class` (we-trajectory / let-me / neutral, thresholds calibrated on the five scenes), `economy` with unit-embedded keys (`requests_n`, `median_new_input_tks_per_request`, `total_new_input_tks`, `total_output_tks`, `total_cache_read_tks`, `total_tokens_all_tks`, `wall_min`, `tool_calls_n`), `trajectory` (todo/edit/test indices, edit/write counts), `efficiency` (`stripped_ability_pts_per_k_new_input_tks`).
 
 **Compare (the cross-run matrix).** All runs share the frozen registry (F1-F12, `V4-*` item ids, same `family_max`), so `item_results` statuses are directly comparable - a run's delta is exactly the set of newly-passed/failed items, and each has a named blocker (P-report, S-ambient, E-contract) or a family. Dimensions (`dimensions.json`) and the multi-dimensional tables (voice, trajectory, economy) add the process view.
 

@@ -170,7 +170,7 @@ def main():
                 "class": classify_voice(we_total, letme_total),
                 "we_total": we_total,
                 "letme_total": letme_total,
-                "blocks": len(assistant),
+                "blocks_n": len(assistant),
                 "first_task_block": task_block,
                 "a3_signature": we_total >= 50 and 1 <= letme_total <= 3,
             }
@@ -186,15 +186,15 @@ def main():
                     cache_write += u.get("cacheWrite", 0)
                     inputs.append(u.get("input", 0))
             card["economy"] = {
-                "requests": len(assistant),
-                "median_input_per_request": round(statistics.median(inputs), 1) if inputs else None,
-                "total_new_input": in_total,
-                "total_output": out_total,
-                "total_cache_read": cache_total,
-                "total_cache_write": cache_write,
-                "total_tokens": in_total + out_total + cache_total + cache_write,
-                "wall_minutes": wall,
-                "tool_calls": len(tools),
+                "requests_n": len(assistant),
+                "median_new_input_tks_per_request": round(statistics.median(inputs), 1) if inputs else None,
+                "total_new_input_tks": in_total,
+                "total_output_tks": out_total,
+                "total_cache_read_tks": cache_total,
+                "total_cache_write_tks": cache_write,
+                "total_tokens_all_tks": in_total + out_total + cache_total + cache_write,
+                "wall_min": wall,
+                "tool_calls_n": len(tools),
             }
             # --- trajectory ---
             n_edit = sum(1 for t in tools if t["toolName"] == "edit")
@@ -218,8 +218,8 @@ def main():
             scr = card["score"]
             if scr and in_total:
                 card["efficiency"] = {
-                    "stripped_ability_per_k_new_input": round(scr["stripped_ability"] / (in_total / 1000), 3),
-                    "stripped_ability_per_k_output": round(scr["stripped_ability"] / (out_total / 1000), 3),
+                    "stripped_ability_pts_per_k_new_input_tks": round(scr["stripped_ability"] / (in_total / 1000), 3),
+                    "stripped_ability_pts_per_k_output_tks": round(scr["stripped_ability"] / (out_total / 1000), 3),
                 }
 
     out_path = rdir / args.out
