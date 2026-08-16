@@ -98,57 +98,58 @@ The `We need` / `Let me` flip tracks the **system prompt**, not session history:
 
 - A/B host persona: `We need` 0/4 runs.
 - Session `01a005c2` (v0.5.0 ping-pong): the anchor turn's pong thought "We need answer user"; the task turn under the restored host prompt thought "Let me understand the task" - the flip at the promote, in one session.
-- Three-run measurement (same seed): host-prompt runs show `let me` 138x / 159x and `we need` ~1x; the minimal-persist run shows `we` 174x, `let me` 0x across all 129 requests - the minimal persona holds the We-voice for a full working session. Scene 4 (ping-pong + persist) repeats the pattern: `we` 151x, `let me` 1x (one transient block at the task start - the A3 path-commitment signature), and the ping-pong's own thinking opens "We need answer to user".
+- Three-run measurement (same seed): host-prompt runs show `let me` 138x / 159x and `we need` ~1x; the minimal-persist run shows `we` 174x, `let me` 0x across all 129 requests - the minimal persona holds the We-voice for a full working session. Scene 4 (ping-pong + persist) repeats the pattern: `we` 151x, `let me` 1x (one transient block at the task start - the A3 path-commitment signature), and the ping-pong's own thinking opens "We need answer to user". Scene 5 (`/anchor-tools-only`, session `01a00a7c`) closes the tool-state question on a full benchmark run: host persona + zero-tool ping-pong, then host persona + full tools - `we` 0x, `let me` 163x. Same ritual shape as scene 4, opposite voice: the persona, and only the persona, carries the We-trajectory.
 
-## 9. Modeltest measurement (4 runs, frozen v4.1b)
+## 9. Modeltest measurement (5 runs, frozen v4.1b)
 
 Method: interactive omp + the plugin, cwd = `workspace/`, candidate prompt pasted after the anchor, scored with `evaluator/run_full_eval.py` (fully deterministic: hidden tests + rubric; no LLM in grading). Workspace reset per run via `make_broken_project.py`.
 
-| | Scene 1 vanilla (`01a0063f`) | Scene 2 `/anchor-minimal` collapse (`01a0061f`) | Scene 3 ping-pong+host (`01a005d8`) | Scene 4 `/anchor-minimal` ping-pong (`01a0095a`) |
-|---|---|---|---|---|
-| ability / ship | 87.0 / 87.0 | 88.0 / 88.0 | 89.0 / 89.0 | **95.0 / 95.0** |
-| class | B+ | B+ | B+ | B+ |
-| hidden tests | 42/45 | 42/45 | 43/45 | **44/45** |
-| ESP-IDF static | 7/9 | **8/9** | 7/9 | **8/9** |
-| F1 (process/report) | 6.0 | 6.0 | **8.0** | **8.0** |
-| process_truth | 7.5 | 7.5 | **10.0** | **10.0** |
-| final_code | 10.0 | 10.0 | 10.0 | 10.0 |
-| security | - | - | 8.33 | **9.72** |
-| esp_deploy | - | - | 6.43 | **7.14** |
-| blockers | P-report, S-ambient, E-contract | P-report, S-ambient, E-contract | S-ambient, E-contract | **E-contract** |
+| | Scene 1 vanilla (`01a0063f`) | Scene 2 `/anchor-minimal` collapse (`01a0061f`) | Scene 3 ping-pong+host (`01a005d8`) | Scene 4 `/anchor-minimal` ping-pong (`01a0095a`) | Scene 5 `/anchor-tools-only` (`01a00a7c`) |
+|---|---|---|---|---|---|
+| ability / ship | 87.0 / 87.0 | 88.0 / 88.0 | 89.0 / 89.0 | **95.0 / 95.0** | **95.0 / 95.0** |
+| class | B+ | B+ | B+ | B+ | B+ |
+| hidden tests | 42/45 | 42/45 | 43/45 | **44/45** | **44/45** |
+| ESP-IDF static | 7/9 | **8/9** | 7/9 | **8/9** | **8/9** |
+| F1 (process/report) | 6.0 | 6.0 | **8.0** | **8.0** | **8.0** |
+| process_truth | 7.5 | 7.5 | **10.0** | **10.0** | **10.0** |
+| final_code | 10.0 | 10.0 | 10.0 | 10.0 | 10.0 |
+| security | - | - | 8.33 | **9.72** | **9.72** |
+| migration | - | - | - | 10.0 | 10.0 |
+| esp_deploy | - | - | 6.43 | **7.14** | **7.14** |
+| blockers | P-report, S-ambient, E-contract | P-report, S-ambient, E-contract | S-ambient, E-contract | **E-contract** | **E-contract** |
 
-Results: `evaluator/results/20260815_150235` (scene 3), `20260815_161849` (scene 2), `20260815_164958` (scene 1), `20260816_071457` (scene 4).
+Results: `evaluator/results/20260815_150235` (scene 3), `20260815_161849` (scene 2), `20260815_164958` (scene 1), `20260816_071457` (scene 4), `20260816_123733` (scene 5).
 
-Scene 4 is the only run to pass `F3-05 ambient_session` (5 pts, S-ambient - failed all three prior runs) and it re-passed `F1-01 process_initial` (PR-template family). Remaining gaps are the same structural ones: `F8-03 esp_mqtt_deps` (E-contract), `F12-04 no_actor_session`, `F9-01 skipped_env`, `F11-01 heuristic`.
+Scene 5 (`/anchor-tools-only`: host persona + zero-tool ping-pong, then host persona + full tools for the task) scored **identical to scene 4 on every dimension** despite the opposite voice (we 0 / let-me 163 vs we 151 / 1). The two 95.0 runs both passed `F3-05 ambient_session` (5 pts, real hidden test `test_sensitive_target_context_requires_explicit_session_behavior` - failed all three 87-89 runs) and `F1-01 process_initial` (PR-template family); both share the structural gaps `F8-03 esp_mqtt_deps` (E-contract), `F12-04 no_actor_session`, `F9-01 skipped_env` (heuristic `F11-01`). **Score is orthogonal to voice on this benchmark** - the 87-95 band is run-to-run variance (hidden-test + template outcomes), not the anchor.
 
 ### 9.1 Multi-dimensional comparison
 
-**Trajectory shape** (mandated flow - test before edit - complied in all four: 17<69, 11<70, 21<74, 9<59):
+**Trajectory shape** (mandated flow - test before edit - complied in all five: 17<69, 11<70, 21<74, 9<59, 6<66):
 
-| | vanilla | minimal collapse | host-return | ping+persist |
-|---|---|---|---|---|
-| planning (first `todo`) | #68 (after exploration) | **#1 (before anything)** | #73 | #57 (after exploration) |
-| verify-iterate loops (test re-runs) | 6 | **11** | 6 | 8 |
-| edit / write (surgical vs rewrite) | 55 / 12 | **58 / 2** | 33 / 14 | 48 / 10 |
-| diff footprint | 24 files | **16 files** | no repo | 13 files |
-| voice (we / let me) | we ~1 / let me 138x | we 174 / 0 | we ~1 / let me 159x | we 151 / **1** |
+| | vanilla | minimal collapse | host-return | ping+persist | tools-only |
+|---|---|---|---|---|---|
+| planning (first `todo`) | #68 (after exploration) | **#1 (before anything)** | #73 | #57 (after exploration) | #65 (after exploration) |
+| verify-iterate loops (test re-runs) | 6 | **11** | 6 | 8 | 9 |
+| edit / write (surgical vs rewrite) | 55 / 12 | **58 / 2** | 33 / 14 | 48 / 10 | 47 / 12 |
+| diff footprint | 24 files | **16 files** | no repo | 13 files | 21 files |
+| voice (we / let me) | we ~1 / let me 138x | we 174 / 0 | we ~1 / let me 159x | we 151 / **1** | we 0 / let me 163x |
 
 The minimal persona's signature: tight verification + surgical edits + the We-voice. Scene 2 opened with a todo list before a single read, re-ran the test batteries 11x vs 6x, and stayed surgical (2 whole-file rewrites vs vanilla's 12 and scene-3's 14). **Scene 4 corrects scene 2's attribution**: the plan-first `todo #1` was an artifact of the collapse's zero-tool first turn (nothing to do but plan) - with full tools from the task start (ping-pong shape), the same persona explores first (`todo #57`, like vanilla #68) but keeps the tight verification and surgical edits. Scene 4's single `let me` is the first task-turn block ("Let me start by understanding the workspace") - one transient block, then the We-voice holds for the session: the dsh router's measured A3 path-commitment signature.
 
 **Reasoning economy**:
 
-| | vanilla | minimal collapse | host-return | ping+persist |
-|---|---|---|---|---|
-| median input/request | 601 | **171** | 767 | 288 |
-| total new input | 186k | 132k | 169k | **107.6k** |
-| total output | 92.9k | **58.8k** | 94.5k | 64.0k |
-| wall time | 18.6 min | 18.0 min | 21.6 min | **12.3 min** |
+| | vanilla | minimal collapse | host-return | ping+persist | tools-only |
+|---|---|---|---|---|---|
+| median input/request | 601 | **171** | 767 | 288 | 835 |
+| total new input | 186k | 132k | 169k | **107.6k** | 164k |
+| total output | 92.9k | **58.8k** | 94.5k | 64.0k | 98.2k |
+| wall time | 18.6 min | 18.0 min | 21.6 min | **12.3 min** | 15.6 min |
 
-Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the odd one: the host prompt *returning* correlated with the *longest* thinking (767 median) and the slowest run (21.6 min) - the host prompt's elaborate style drives verbosity, not the anchor. Scene 4 is the tightest overall: lowest total new input (107.6k), second-lowest output (64.0k), and the fastest run (12.3 min, 98 requests) - the ping-pong shape removes the collapse's refusal round-trip and the persisted minimal persona keeps the request economy without a zero-tool first turn.
+Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the odd one: the host prompt *returning* correlated with the *longest* thinking (767 median) and the slowest run (21.6 min) - the host prompt's elaborate style drives verbosity, not the anchor. Scene 4 is the tightest overall: lowest total new input (107.6k), second-lowest output (64.0k), and the fastest run (12.3 min, 98 requests) - the ping-pong shape removes the collapse's refusal round-trip and the persisted minimal persona keeps the request economy without a zero-tool first turn. Scene 5 (tools-only) is squarely in the host band on every economy metric (median 835, 164k new input, 15.6 min): the zero-tool ritual contributes nothing to the task-turn economy - persona does.
 
-**Reliability**: all four self-recovered (scene 1 noticed `read` eliding with `…` and switched to raw mode mid-run; scene 2 reasoned about a C++ compile issue before its first edit). No destructive ops, no test tampering (`T-tamper` guard passed in all). The structural gaps are stable across runs: `context_policy` had exactly one miss in every run (F12-04 `no_actor_session` in scenes 1-4, plus scene 1's F3-05) and the `E-contract` ESP-IDF MQTT item failed all four - spec-level misses, not per-run noise.
+**Reliability**: all five self-recovered (scene 1 noticed `read` eliding with `…` and switched to raw mode mid-run; scene 2 reasoned about a C++ compile issue before its first edit). No destructive ops, no test tampering (`T-tamper` guard passed in all). The structural gaps are stable across runs: `context_policy` had exactly one miss in every run (F12-04 `no_actor_session` in scenes 1-5) and the `E-contract` ESP-IDF MQTT item failed all five - spec-level misses, not per-run noise.
 
-**Reporting honesty**: all four recorded debug commands + ESP status + honesty markers (未验证/无法/失败/未运行) in the PR template; no fabricated claims. The 87-89 spread was a reporting-completeness artifact (F1 8.0 vs 6.0); scene 4 re-passed F1-01 and additionally fixed the one real code item that failed all prior runs (F3-05 `ambient_session`, 5 pts).
+**Reporting honesty**: all five recorded debug commands + ESP status + honesty markers (未验证/无法/失败/未运行) in the PR template; no fabricated claims. The 87-89 spread was a reporting-completeness artifact (F1 8.0 vs 6.0); the two 95.0 runs (scenes 4+5) re-passed F1-01 and both passed the hidden `F3-05 ambient_session` test that the three 87-89 runs failed - including scene 5, which never had the minimal persona. Score tracks the diff, not the persona.
 
 ### 9.2 Methodology: evaluate / analyze / compare
 
@@ -158,7 +159,7 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 2. Launch interactive omp with the plugin loaded, cwd = `modeltest/workspace/`; run the scene's `/anchor-*` command first; paste `CANDIDATE_PROMPT.md`; let the agent work. The candidate must never see `evaluator/`, `docs/`, or the results dirs.
 3. Score with the frozen evaluator:
    `python3 evaluator/run_full_eval.py workspace/project2_task --require-meta --model deepseek-v4-flash --channel opencode-go --harness <scene> --thinking-level high --run-group-id <id> --run-index 1`
-   Scoring is fully deterministic (hidden tests + rubric, no LLM in grading). Results land in `evaluator/results/<timestamp>/`. Key artifacts: `score_draft.json` (`ability_draft`/`ship_draft`, `family_draft`, `item_results` with per-item status + blocker), `hidden_summary.json`, `espidf_static_summary.json`, `dimensions.json`, `blockers.json`, `candidate_diff.patch`, `pull_request_template.md`. Harness labels used: `omp-vanilla`, `omp-anchor-minimal-persist`, `omp-anchored-minimal`, `omp-anchor-minimal-pingpong`.
+   Scoring is fully deterministic (hidden tests + rubric, no LLM in grading). Results land in `evaluator/results/<timestamp>/`. Key artifacts: `score_draft.json` (`ability_draft`/`ship_draft`, `family_draft`, `item_results` with per-item status + blocker), `hidden_summary.json`, `espidf_static_summary.json`, `dimensions.json`, `blockers.json`, `candidate_diff.patch`, `pull_request_template.md`. Harness labels used: `omp-vanilla`, `omp-anchor-minimal-persist`, `omp-anchored-minimal`, `omp-anchor-minimal-pingpong`, `omp-anchor-tools-only`.
 
 **Analyze (session + log forensics).** Sources:
 
@@ -176,18 +177,18 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 
 ## 10. Conclusions
 
-- **Engineering quality is flat across all four**: `final_code` 10.0 everywhere, the same two structural gaps (F12-04, F8-03) in every run, same mandated-flow compliance. The anchor does not make the model smarter on this benchmark.
-- **The anchor changes the process, not the outcome**: terse `We need` reasoning, tight verification, surgical edits, 30-40% token reduction - at zero quality cost, and in scene 4 a real item that no other run fixed (F3-05).
-- **The score story: 87/88/89 was PR-template luck; scene 4's 95.0 is luck plus one real pass.** F1-01 (template) is the known-variance family; F3-05 (`ambient_session`, failed all prior runs) is a genuine code fix. n=1: the shape's causal credit is bounded by mechanism (voice, economy, clean start), not by the point delta.
-- **Voice tracks the system prompt 1:1**; the minimal persona holds it for a whole session; the host prompt returning costs verbosity, not correctness. Scene 4 adds the A3 signature: one transient `let me` block at the task start, then the We-voice holds.
+- **Engineering quality is flat across all five**: `final_code` 10.0 everywhere, the same two structural gaps (F12-04, F8-03) in every run, same mandated-flow compliance. The anchor does not make the model smarter on this benchmark.
+- **The anchor changes the process, not the outcome**: terse `We need` reasoning, tight verification, surgical edits, 30-40% token reduction - at zero quality cost.
+- **The score story is run variance, not the anchor: 87/88/89 vs 95.0/95.0.** The two 95.0 runs (scene 4 minimal-persist, scene 5 tools-only) have opposite voices and identical item profiles - so F1-01 (template) and even F3-05 (real hidden test) are run-luck, not persona effects. Scene 5 never had the minimal persona and still passed both. On this frozen benchmark the anchor is score-neutral; its measured value is trajectory + cost, consistent with the Flash conclusion (style/token-level, not ability).
+- **Voice tracks the system prompt 1:1 and is orthogonal to score**: scene 4 (we 151 / let-me 1) and scene 5 (we 0 / let-me 163) both scored 95.0. The minimal persona holds the We-voice for a whole session (with scene 4's A3 one-transient-`let me` signature); the host prompt returning costs verbosity and economy, not correctness or score.
 - **Scene 2's plan-first signature was a zero-tool artifact**: with full tools from the task start, the same persona explores before planning (`todo #57`, like vanilla) - the persona's durable signatures are voice + economy + surgical edits, not plan-first ordering.
-- **Ping-pong + persist is the best measured shape**: clean start (no collapse refusal), tightest economy (107.6k new input, 12.3 min), We-voice, best score. The `persona: "minimal"` config path is its zero-ritual equivalent.
+- **Ping-pong + persist is the best measured shape on cost + voice, tied on score**: scene 4 = We-voice, tightest economy (107.6k new input, 12.3 min), 95.0; scene 5 = host voice, host economy (164k, 15.6 min), same 95.0. The `persona: "minimal"` config path is the zero-ritual equivalent of scene 4 - and scene 5 proves the ritual alone buys neither score nor economy.
 
 ## 11. Caveats
 
-- n=1 per configuration; the benchmark is one frozen personal benchmark. Directional, not a law.
+- n=1-2 per configuration; the benchmark is one frozen personal benchmark. Directional, not a law.
 - Flash's measured effect is style/token-efficiency; expect chatter/token wins, not ability gains.
-- Scene 3's 89 carried the 0.5.1 serialization race (burned first turn), so its true level is >= 89; scene 2 ran the collapse (refusal-ack + "continue") rather than the recommended ping-pong, so its process profile slightly understates the ping-pong shape. Scene 4 (95.0) is the recommended shape; its score edge over scenes 1-3 is one template item plus one real item (F3-05) - expect the 87-95 band to be run luck on n=1, with the process effects (voice, economy, clean start) as the durable result.
+- Scene 3's 89 carried the 0.5.1 serialization race (burned first turn), so its true level is >= 89; scene 2 ran the collapse (refusal-ack + "continue") rather than the recommended ping-pong, so its process profile slightly understates the ping-pong shape. The 87-95 band is run luck (n=2 at 95.0 with opposite voices); the durable results are the process effects - voice, economy, clean start.
 - Compaction edge untested: promotion is memoized per session in-process (safe across compaction), but post-compaction resume in a new process needs one explicit test.
 - `bootstrapMaxTokens` (1024) is pi-only: omp has no native max-token setter and its `before_provider_request` return is discarded by the openai-completions transport.
 - Validated on omp only; the pi port mirrors the same logic but pi is not installed locally.
