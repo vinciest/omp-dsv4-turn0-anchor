@@ -45,6 +45,42 @@ Measured levers, strongest first for Flash:
 3. **First-turn `max_tokens` cap**: `max_tokens: 1024` reproduced the anchored style 26/32 runs vs 0/5 at 256000 (pi-side; omp has no native cap).
 4. **Injected context**: a ~9KB skill-catalog `<system-reminder>` flipped the anchor 81% -> 0%.
 
+### 3.1 The variable space (consistent vocabulary for every scene, mode, and doc)
+
+Every `/anchor-*` command and every scene is a combination of three independent variables. This is the canonical vocabulary for all evaluations in this repo. Sources: `deepseek-harness` minimal preset, `xiaobright/dsh-anchored-standard` (`preset/agent.cordis.yml`, `zero-anchored-standard/anchor-turn.mjs`, `zero-anchored-standard/zero-tool-bootstrap.mjs`), omp (`src/prompts/system/system-prompt.md`).
+
+**V1 - system prompt (persona) in force at a given turn.**
+- `minimal` - `You are a helpful software engineer assistant.` (harness minimal preset; ~110 tokens; the RL-aligned scaffold)
+- `builtin` - omp's full system prompt (~37k tokens; the elaborate harness prompt + personality preset)
+- Note: `This round is a test. Tools are not open yet; all tools will open next round.` (`ANCHOR_TEXT`) is **not** a system prompt in any reference - `zero-anchored-standard/agent.cordis.yml` sets system to `minimal` while `anchor-turn.mjs` prepends the text as a **user-side** conditioning message. The anchor text is a V3 artifact.
+
+**V2 - tool surface at a given turn.**
+- `empty` - 0 tools
+- `bash+read` - minimal discovery pair (dsh bootstrap)
+- `bash+str_replace_editor` - harness minimal's official pair
+- `full` - omp's complete catalog (19 tools)
+- Divergence: upstream's post-promotion target is a **resident set** (shells + `str_replace_editor` + 3 discovery tools; its docs measure a full dump as a `let me` regression). Our port restores `full` (`docs/upstream-divergence.md`).
+
+**V3 - injection timing (how the conditioning reaches the model; promote always lands after the first agent message).**
+- `none` - no anchor turn
+- `collapse` - anchor text merged into the first (task) user message: "task + continue" (our v0.6.0)
+- `ping-pong` - anchor text sent as its own user turn, model pongs, task is the next user turn (upstream shape; our v0.7.0+)
+- Invariant across every reference repo and our scenes: **actual execution starts after the second user message** in both `collapse` and `ping-pong`; only the noise/token/UX around the conditioning turn differs.
+
+**Scene -> cell map** (V1 anchor-turn -> V1 task-turn / V2 anchor -> V2 task / V3):
+
+| scene | cell | score | task voice |
+|---|---|---|---|
+| S1 vanilla | builtin / full / none | 87.0 | let-me |
+| S2 collapse+persist | minimal / empty->full / collapse | 88.0 | We |
+| S3 ping+host | minimal->builtin / empty->full / ping-pong | 89.0 | let-me |
+| S4 ping+persist | minimal / empty->full / ping-pong | 95.0 | We |
+| S5 tools-only | builtin / empty->full / ping-pong | 95.0 | let-me |
+
+Commands: `/anchor-minimal` = V1 minimal persisted + V3 ping-pong; `/anchor-builtin` = V1 minimal for the anchor turn, V1 builtin after; `/anchor-tools-only` = V1 builtin throughout; all three use V2 empty->full. `persona: "minimal"` config = V1 minimal, V2 full from the start, V3 none - **the pure-swap cell, never run**.
+
+The five scenes collapse to two repeated cells: **minimal+promote** (S2, S4 - n=2, 88.0 / 95.0) and **builtin+full** (S1, S3, S5 - n=3, 87.0 / 89.0 / 95.0). S2 vs S4 differ only in V3 (collapse vs ping-pong) - so the only V3 contrast in the data is confounded with run luck and cannot be attributed.
+
 ## 4. The omp port gap and the fix
 
 The published port (`minimalSystemPrompt: true`) replaces omp's **entire system prompt** permanently. Consequences (measured in a real session):
@@ -102,7 +138,7 @@ The `We need` / `Let me` flip tracks the **system prompt**, not session history:
 
 ## 9. Modeltest measurement (5 runs, frozen v4.1b)
 
-Method: interactive omp + the plugin, cwd = `workspace/`, candidate prompt pasted after the anchor, scored with `evaluator/run_full_eval.py` (fully deterministic: hidden tests + rubric; no LLM in grading). Workspace reset per run via `make_broken_project.py`.
+Method: interactive omp + the plugin, cwd = `workspace/`, candidate prompt pasted after the anchor, scored with `evaluator/run_full_eval.py` (fully deterministic: hidden tests + rubric; no LLM in grading). Workspace reset per run via `make_broken_project.py`. Scene -> cell mapping in §3.1 (the five scenes are two repeated cells: minimal+promote n=2, builtin+full n=3).
 
 | | Scene 1 vanilla (`01a0063f`) | Scene 2 `/anchor-minimal` collapse (`01a0061f`) | Scene 3 ping-pong+host (`01a005d8`) | Scene 4 `/anchor-minimal` ping-pong (`01a0095a`) | Scene 5 `/anchor-tools-only` (`01a00a7c`) |
 |---|---|---|---|---|---|
@@ -179,10 +215,11 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 
 - **Engineering quality is flat across all five**: `final_code` 10.0 everywhere, the same two structural gaps (F12-04, F8-03) in every run, same mandated-flow compliance. The anchor does not make the model smarter on this benchmark.
 - **The anchor changes the process, not the outcome**: terse `We need` reasoning, tight verification, surgical edits, 30-40% token reduction - at zero quality cost.
-- **The score story is run variance, not the anchor: 87/88/89 vs 95.0/95.0.** The two 95.0 runs (scene 4 minimal-persist, scene 5 tools-only) have opposite voices and identical item profiles - so F1-01 (template) and even F3-05 (real hidden test) are run-luck, not persona effects. Scene 5 never had the minimal persona and still passed both. On this frozen benchmark the anchor is score-neutral; its measured value is trajectory + cost, consistent with the Flash conclusion (style/token-level, not ability).
-- **Voice tracks the system prompt 1:1 and is orthogonal to score**: scene 4 (we 151 / let-me 1) and scene 5 (we 0 / let-me 163) both scored 95.0. The minimal persona holds the We-voice for a whole session (with scene 4's A3 one-transient-`let me` signature); the host prompt returning costs verbosity and economy, not correctness or score.
+- **By cell (V1/V2/V3 per §3.1), no configuration beats another on score**: minimal+promote (S2, S4) = 88.0 / 95.0; builtin+full (S1, S3, S5) = 87.0 / 89.0 / 95.0. Both cells span the full 87-95 band; the two 95.0 runs have opposite voices and identical item profiles (both pass F1-01 template + F3-05 hidden test; scene 5 never had the minimal persona). The band is run-to-run variance in hidden-test + template outcomes, not a config effect.
+- **V1 (persona at the task turn) is the only variable with deterministic effects**: it predicts voice (minimal -> We 5/5 runs; builtin -> let-me 5/5) and economy (minimal -> tight, builtin -> heavy) with zero overlap. V2's anchor-turn emptiness and V3's timing show no task-turn effect (S3, S5 prove it).
+- **V3 (timing) is confounded in the current data**: S2 vs S4 are the same cell differing only in collapse vs ping-pong (88.0 vs 95.0) - attributable to either timing or run luck; n=1 per timing. Upstream and UX favor ping-pong (collapse measured worse on noise/token/UX, v0.6.0); keep ping-pong, claim nothing on score.
 - **Scene 2's plan-first signature was a zero-tool artifact**: with full tools from the task start, the same persona explores before planning (`todo #57`, like vanilla) - the persona's durable signatures are voice + economy + surgical edits, not plan-first ordering.
-- **Ping-pong + persist is the best measured shape on cost + voice, tied on score**: scene 4 = We-voice, tightest economy (107.6k new input, 12.3 min), 95.0; scene 5 = host voice, host economy (164k, 15.6 min), same 95.0. The `persona: "minimal"` config path is the zero-ritual equivalent of scene 4 - and scene 5 proves the ritual alone buys neither score nor economy.
+- **Recommendation**: `persona: "minimal"` config (V1 minimal, V2 full, V3 none) is the zero-ritual equivalent of scene 4 - unrun, and the one cell that would attribute V3's contribution. The ritual (V3) buys clean-start UX, not score or economy; scene 5 proves that.
 
 ## 11. Caveats
 
