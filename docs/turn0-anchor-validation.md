@@ -164,11 +164,11 @@ Scene 5 (`/anchor-tools-only`: host persona + zero-tool ping-pong, then host per
 
 | | vanilla | minimal collapse | host-return | ping+persist | tools-only |
 |---|---|---|---|---|---|
-| planning (first `todo`) | #68 (after exploration) | **#1 (before anything)** | #73 | #57 (after exploration) | #65 (after exploration) |
-| verify-iterate loops (test re-runs) | 6 | **11** | 6 | 14 | 9 |
-| edit / write (surgical vs rewrite) | 55 / 12 | **58 / 2** | 33 / 14 | 48 / 10 | 47 / 12 |
-| diff footprint | 24 files | **16 files** | no repo | 13 files | 21 files |
-| voice (we / let me) | we ~1 / let me 138x | we 174 / 0 | we ~1 / let me 159x | we 151 / **1** | we 5 / let me 205x |
+| First todo (tool-call index) | #68 (after exploration) | **#1 (before anything)** | #73 | #57 (after exploration) | #65 (after exploration) |
+| Test re-runs (n) | 6 | **11** | 6 | 14 | 9 |
+| Edits / rewrites (n) | 55 / 12 | **58 / 2** | 33 / 14 | 48 / 10 | 47 / 12 |
+| Diff footprint (files) | 24 | **16** | no repo | 13 | 21 |
+| Voice, counts (we / let-me) | ~1 / 138 | 174 / 0 | ~1 / 159 | 151 / **1** | 5 / 205 |
 
 The minimal persona's signature: tight verification + surgical edits + the We-voice. Scene 2 opened with a todo list before a single read, re-ran the test batteries 11x vs 6x, and stayed surgical (2 whole-file rewrites vs vanilla's 12 and scene-3's 14). **Scene 4 corrects scene 2's attribution**: the plan-first `todo #1` was an artifact of the collapse's zero-tool first turn (nothing to do but plan) - with full tools from the task start (ping-pong shape), the same persona explores first (`todo #57`, like vanilla #68) but keeps the tight verification and surgical edits. Scene 4's single `let me` is the first task-turn block ("Let me start by understanding the workspace") - one transient block, then the We-voice holds for the session: the dsh router's measured A3 path-commitment signature.
 
@@ -176,10 +176,10 @@ The minimal persona's signature: tight verification + surgical edits + the We-vo
 
 | | vanilla | minimal collapse | host-return | ping+persist | tools-only |
 |---|---|---|---|---|---|
-| median new input tks/req | 601 | **171** | 767 | 288 | 835 |
-| total new input tks | 186k | 132k | 169k | **107.6k** | 164k |
-| total output tks | 92.9k | **58.8k** | 94.5k | 64.0k | 98.2k |
-| wall (min, active span) | 18.6 | 18.0 | 21.6 | **12.2** | 15.2 |
+| Median new input per request (tks/req) | 601 | **171** | 767 | 288 | 835 |
+| Total new input (tks) | 186k | 132k | 169k | **107.6k** | 164k |
+| Total output (tks) | 92.9k | **58.8k** | 94.5k | 64.0k | 98.2k |
+| Wall time, active span (min) | 18.6 | 18.0 | 21.6 | **12.2** | 15.2 |
 
 Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the odd one: the host prompt *returning* correlated with the *longest* thinking (767 median) and the slowest run (21.6 min) - the host prompt's elaborate style drives verbosity, not the anchor. Scene 4 is the tightest overall: lowest total new input (107.6k), second-lowest output (64.0k), and the fastest run (12.2 min, 98 requests) - the ping-pong shape removes the collapse's refusal round-trip and the persisted minimal persona keeps the request economy without a zero-tool first turn. Scene 5 (tools-only) is squarely in the host band on every economy metric (median 835, 164k new input, 15.2 min): the zero-tool ritual contributes nothing to the task-turn economy - persona does. Wall time = active span (first to last assistant message, excluding the idle tail of a session left open).
 
@@ -204,7 +204,7 @@ Same work, **37% less output and 29% less new input** in scene 2. Scene 3 is the
 - **Voice**: extract assistant `thinking` blocks from the JSONL; count `\b[Ww]e\b` and `[Ll]et me\b` per block. The A3 signature is exactly one transient `let me` at the task start, then the We-voice holds.
 - **Trajectory shape**: from `tool_execution_start` order - first `todo` index (plan-first vs explore-first), test re-runs (bash calls matching `run_public_tests`/`run_debug_probe`/`run_espidf`/`pytest`), edit vs write counts (surgical vs rewrite), mandated-flow compliance (first test-run index < first edit index).
 - **Reasoning economy**: median `input` per assistant request, total new input, total output, wall time (active span: first to last assistant message - excludes the idle tail of a session left open after the final response).
-- **Automated emitter**: `scripts/process_card.py --results <results-dir> --session <session.jsonl>` (fork repo) computes all of the above plus the score linkage and writes `process_card.json` into the results dir. It never mutates the frozen evaluator's artifacts. Sidecar fields: `score.stripped_ability` (ability minus F1/F9/F11 - template/env/docs-heuristic), `voice.class` (we-trajectory / let-me / neutral, thresholds calibrated on the five scenes), `economy` with unit-embedded keys (`requests_n`, `median_new_input_tks_per_request`, `total_new_input_tks`, `total_output_tks`, `total_cache_read_tks`, `total_tokens_all_tks`, `wall_min`, `tool_calls_n`), `trajectory` (todo/edit/test indices, edit/write counts), `efficiency` (`stripped_ability_pts_per_k_new_input_tks`).
+- **Automated emitter**: `scripts/process_metrics.py --results <results-dir> --session <session.jsonl>` (fork repo) computes all of the above plus the score linkage and writes `process_metrics.json` into the results dir. It never mutates the frozen evaluator's artifacts. Sidecar fields: `score.stripped_ability` (ability minus F1/F9/F11 - template/env/docs-heuristic), `voice.class` (we-trajectory / let-me / neutral, thresholds calibrated on the five scenes), `economy` with unit-embedded keys (`requests_n`, `median_new_input_tks_per_request`, `total_new_input_tks`, `total_output_tks`, `total_cache_read_tks`, `total_tokens_all_tks`, `wall_min`, `tool_calls_n`), `trajectory` (todo/edit/test indices, edit/write counts), `efficiency` (`stripped_ability_pts_per_k_new_input_tks`).
 
 **Compare (the cross-run matrix).** All runs share the frozen registry (F1-F12, `V4-*` item ids, same `family_max`), so `item_results` statuses are directly comparable - a run's delta is exactly the set of newly-passed/failed items, and each has a named blocker (P-report, S-ambient, E-contract) or a family. Dimensions (`dimensions.json`) and the multi-dimensional tables (voice, trajectory, economy) add the process view.
 

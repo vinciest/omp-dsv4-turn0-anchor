@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Process-card emitter: extract voice + reasoning-economy dimensions from an
+"""Process-metrics emitter: extract voice + reasoning-economy dimensions from an
 omp session transcript and link them to a frozen modeltest score result.
 
 Sidecar only: never mutates the frozen evaluator's artifacts (score_draft.json,
-dimensions.json). Writes process_card.json into the results dir (or --out) and
+dimensions.json). Writes process_metrics.json into the results dir (or --out) and
 prints a compact text card.
 
 This makes the anchor's deterministic effects (voice, economy) benchmark
@@ -22,8 +22,8 @@ A3 signature (dsh router's path-commitment shape): we >= 50, 1 <= let-me <= 3
 (scene 4 = 151/1; scene 2 = 174/0 has no transient, holds anyway).
 
 Usage:
-  python3 scripts/process_card.py --results /path/to/evaluator/results/<ts> \
-      --session /path/to/session.jsonl [--out process_card.json]
+  python3 scripts/process_metrics.py --results /path/to/evaluator/results/<ts> \
+      --session /path/to/session.jsonl [--out process_metrics.json]
 
 Stdlib only. The session JSONL is the omp transcript; omp prunes session
 dirs, so snapshot it into the results dir at eval time (or pass --session
@@ -106,7 +106,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--results", required=True, help="evaluator/results/<ts> dir")
     ap.add_argument("--session", help="omp session JSONL (optional; needed for process dims)")
-    ap.add_argument("--out", default="process_card.json", help="output filename in results dir")
+    ap.add_argument("--out", default="process_metrics.json", help="output filename in results dir")
     args = ap.parse_args()
 
     rdir = Path(args.results)
