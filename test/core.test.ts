@@ -507,7 +507,7 @@ describe("extractRaw", () => {
 describe("applyDefaults", () => {
 	const fullDefaults = {
 		models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
-		persona: "host",
+		persona: "builtin",
 		bootstrapMaxTokens: 1024,
 		subagentRoles: [],
 		subagentDefault: "none",
@@ -523,7 +523,7 @@ describe("applyDefaults", () => {
 		);
 	});
 	test("scalars default when missing", () => {
-		assert.equal(applyDefaults({ models: ["x"] }).persona, "host");
+		assert.equal(applyDefaults({ models: ["x"] }).persona, "builtin");
 		assert.equal(applyDefaults({ models: ["x"] }).bootstrapMaxTokens, 1024);
 	});
 	test("explicit values win", () => {
@@ -540,11 +540,14 @@ describe("applyDefaults", () => {
 			subagentDefault: "none",
 		});
 	});
-	test("persona parses the three modes, other values normalize to host", () => {
-		assert.equal(applyDefaults({ persona: "host" }).persona, "host");
+test("persona parses the three modes, other values normalize to builtin", () => {
+		assert.equal(applyDefaults({ persona: "builtin" }).persona, "builtin");
 		assert.equal(applyDefaults({ persona: "minimal" }).persona, "minimal");
 		assert.equal(applyDefaults({ persona: "mixin" }).persona, "mixin");
-		assert.equal(applyDefaults({ persona: "maximal" } as never).persona, "host");
+		assert.equal(applyDefaults({ persona: "maximal" } as never).persona, "builtin");
+	});
+	test("legacy persona: host normalizes to builtin (same untouched behavior)", () => {
+		assert.equal(applyDefaults({ persona: "host" } as never).persona, "builtin");
 	});
 	test("subagent roles parse and filter", () => {
 		const cfg = applyDefaults({
@@ -560,8 +563,8 @@ describe("applyDefaults", () => {
 			"none",
 		);
 	});
-	test("invalid persona normalizes to host", () => {
-		assert.equal(applyDefaults({ persona: "maximal" }).persona, "host");
+	test("invalid persona normalizes to builtin", () => {
+		assert.equal(applyDefaults({ persona: "maximal" }).persona, "builtin");
 	});
 	test("invalid bootstrapMaxTokens normalizes to the default", () => {
 		assert.equal(
@@ -859,10 +862,10 @@ describe("shouldSwapMinimal", () => {
 	const base = {
 		anchorMode: undefined as "minimal" | "builtin" | "tools-only" | undefined,
 		persistMinimal: false,
-		persona: "host" as const,
+		persona: "builtin" as const,
 		isTarget: true,
 	};
-	test("vanilla: host persona, unarmed, never swaps", () => {
+	test("vanilla: builtin persona, unarmed, never swaps", () => {
 		assert.equal(shouldSwapMinimal(base), false);
 		assert.equal(
 			shouldSwapMinimal({ ...base, isTarget: false }),
@@ -881,14 +884,14 @@ describe("shouldSwapMinimal", () => {
 	});
 	test("anchored turn swaps for /anchor-minimal and /anchor-builtin, regardless of everything else", () => {
 		assert.equal(
-			shouldSwapMinimal({ ...base, anchorMode: "minimal", persona: "host" }),
+			shouldSwapMinimal({ ...base, anchorMode: "minimal", persona: "builtin" }),
 			true,
 		);
 		assert.equal(
 			shouldSwapMinimal({
 				...base,
 				anchorMode: "builtin",
-				persona: "host",
+				persona: "builtin",
 				isTarget: false,
 			}),
 			true,
@@ -903,7 +906,7 @@ describe("shouldSwapMinimal", () => {
 			shouldSwapMinimal({
 				...base,
 				anchorMode: "tools-only",
-				persona: "host",
+				persona: "builtin",
 				isTarget: false,
 			}),
 			false,
@@ -916,7 +919,7 @@ describe("shouldSwapMinimal", () => {
 				...base,
 				persistMinimal: true,
 				isTarget: false,
-				persona: "host",
+				persona: "builtin",
 			}),
 			true,
 		);

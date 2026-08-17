@@ -384,19 +384,23 @@ export function isPositiveInt(value: unknown): value is number {
 export const BOOTSTRAP_TOOLS: string[] = ["bash", "read"];
 
 /**
- * System-prompt mode for target-model sessions:
- *  - "host"   (default): keep the host's own system prompt untouched; only
- *    the tool catalog is narrowed on the first request.
- *  - "minimal": replace the whole system prompt with the DSH minimal persona
- *    during the bootstrap phase only (the turn-0 trajectory anchor); the host
- *    system prompt returns once the session promotes.
- * The replacement is wholesale, not a filter, and "minimal" names a mode of
- * the DeepSeek Harness, not of this extension — hence the explicit opt-in.
+ * System-prompt mode for target-model sessions (three modes, both hosts,
+ * main + subagent paths):
+ *  - "builtin" (default): the complete omp system prompt, untouched.
+ *  - "minimal": wholesale - MINIMAL_SYSTEM_PROMPT (the deepseek-harness
+ *    minimal mode) replaces the builtin prompt for every request, full
+ *    tools.
+ *  - "mixin": pure minimal until promotion (the first durable tool call or
+ *    assistant message anchors the trajectory), then minimal persona + omp
+ *    discipline via the surgical `# Personality` swap - conventions, tool
+ *    policy, workflow, delivery, role template, yield protocol survive.
+ * "minimal" names a mode of the DeepSeek Harness, not of this extension -
+ * hence the explicit opt-in.
  */
-export type PersonaMode = "host" | "minimal" | "mixin";
+export type PersonaMode = "builtin" | "minimal" | "mixin";
 
 export function isPersonaMode(value: unknown): value is PersonaMode {
-	return value === "host" || value === "minimal" || value === "mixin";
+	return value === "builtin" || value === "minimal" || value === "mixin";
 }
 
 /** Anchor-turn persona mode for the /anchor-* commands. */
@@ -426,7 +430,7 @@ export interface SwapDecision {
  *  - `/anchor-minimal` keeps the minimal persona for the whole session
  *    (persistMinimal);
  *  - the config path has three modes (`persona`):
- *      - "host": builtin - the complete omp system prompt, untouched;
+ *      - "builtin": the complete omp system prompt, untouched;
  *      - "minimal": whole - every swap yields MINIMAL_SYSTEM_PROMPT (the
  *        deepseek-harness minimal mode) replacing the builtin prompt, full
  *        tools from request 1 (the measured scene-2 profile);
@@ -489,7 +493,7 @@ export interface RawConfig {
 
 export const DEFAULTS: Config = {
 	models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
-	persona: "host",
+	persona: "builtin",
 	bootstrapMaxTokens: 1024,
 	subagentRoles: [],
 	subagentDefault: "none",
@@ -510,7 +514,8 @@ export function extractRaw(
 
 /**
  * Apply defaults to a raw config. Model arrays are deduplicated; an invalid
- * `persona` value normalizes to "host".
+ * `persona` value normalizes to the default. (Pre-v0.12.0 configs using
+ * `persona: "host"` normalize to "builtin" - the same untouched behavior.)
  */
 export function applyDefaults(raw: RawConfig): Config {
 	return {

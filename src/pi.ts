@@ -32,7 +32,7 @@
  *   {
  *     "anchoredTools": {
  *       "models": ["deepseek-v4-flash*"],   // optional; default targets the flash/pro families
- *       "persona": "host",                  // optional; "host" (default) | "minimal"
+ *       "persona": "builtin",              // optional; "builtin" (default) | "minimal" | "mixin"
  *       "bootstrapMaxTokens": 1024          // optional; first-request output-budget cap
  *     }
  *   }
@@ -100,7 +100,7 @@ function loadConfig(
 	}
 	if (merged.persona !== undefined && !isPersonaMode(merged.persona)) {
 		warn(
-			`[${EXT_NAME}] invalid persona ${JSON.stringify(merged.persona)}; using "host"`,
+			`[${EXT_NAME}] invalid persona ${JSON.stringify(merged.persona)}; using "builtin"`,
 		);
 	}
 	if (
@@ -182,7 +182,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Persona swap - three modes (mirrors omp; subagent auto-switch is
 		// omp-only, pi has no before_agent_start session identity):
-		//  - "host": builtin, untouched;
+		//  - "builtin": the complete omp system prompt, untouched;
 		//  - "minimal": wholesale MINIMAL_SYSTEM_PROMPT every request;
 		//  - "mixin": wholesale until promotion, then minimal persona +
 		//    omp discipline (rewriteSystemPromptBlock);

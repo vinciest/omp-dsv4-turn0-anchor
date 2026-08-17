@@ -20,7 +20,7 @@
  *     `{ systemPrompt: [...] }` to swap the whole system prompt for the DSH
  *     minimal persona on every target-model request - a pure whole-session
  *     swap with the full tool catalog (no anchor turn, no narrowing). Default
- *     `persona: "host"` never touches omp's system prompt.
+ *     `persona: "builtin"` never touches omp's system prompt.
  *   - commands: `/anchor-builtin`, `/anchor-minimal` and
  *     `/anchor-tools-only` arm the session and send the upstream ANCHOR_TEXT
  *     via `sendUserMessage` (the ping-pong turn - upstream `anchor-turn.mjs`
@@ -52,7 +52,7 @@
  *   anchoredTools:
  *     models:
  *       - deepseek-v4-flash*        # optional; default targets the flash/pro families
- *     persona: host                # optional; "host" (default) | "minimal"
+ *     persona: builtin            # optional; "builtin" (default) | "minimal" | "mixin"
  *     bootstrapMaxTokens: 1024     # optional; pi-only, validated on omp
  *
  * Requirements: omp runs on Bun, so `Bun.YAML.parse` is available for reading
@@ -132,7 +132,7 @@ function loadConfig(
 	const merged = deepMerge(globalRaw, projectRaw) as RawConfig;
 	if (merged.persona !== undefined && !isPersonaMode(merged.persona)) {
 		logger.warn(
-			`[${EXT_NAME}] invalid persona ${JSON.stringify(merged.persona)}; using "host"`,
+			`[${EXT_NAME}] invalid persona ${JSON.stringify(merged.persona)}; using "builtin"`,
 		);
 	}
 	if (
@@ -342,7 +342,7 @@ export default function (pi: ExtensionAPI) {
 		//    the persona, is the no-let-me trigger);
 		//  - /anchor-minimal: minimal for the whole session (persistMinimal);
 		//  - config path (`persona`) - three modes for target models:
-		//      "host"   builtin (untouched)
+		//      "builtin" untouched (omp system prompt as-is)
 		//      "minimal" whole: MINIMAL_SYSTEM_PROMPT replaces the builtin
 		//               prompt, full tools, no anchor turn;
 		//      "mixin"  minimal until promotion (pure harness prompt anchors
@@ -546,7 +546,7 @@ export default function (pi: ExtensionAPI) {
 				`target models: ${cfg.models.join(", ") || "(none — no model is anchored)"}`,
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
-				`persona: ${cfg.persona === "minimal" ? "minimal (whole swap: harness minimal prompt replaces the builtin, full tools)" : cfg.persona === "mixin" ? "mixin (minimal until promotion, then minimal persona + omp discipline)" : "host (builtin, untouched)"}`,
+				`persona: ${cfg.persona === "minimal" ? "minimal (whole swap: harness minimal prompt replaces the builtin, full tools)" : cfg.persona === "mixin" ? "mixin (minimal until promotion, then minimal persona + omp discipline)" : "builtin (untouched omp system prompt)"}`,
 				`subagent auto-switch: roles=[${cfg.subagentRoles.join(", ") || "none"}] default=${cfg.subagentDefault}`,
 				`minimal armed (next request): ${sid && armed.has(sid) ? (toolsOnly.has(sid) ? "yes (tools-only)" : "yes") : "no"}`,
 				`minimal persists (session): ${sid && persistMinimal.has(sid) ? "yes" : "no"}`,

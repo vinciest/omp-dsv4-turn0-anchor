@@ -6,11 +6,11 @@ Fork of the `omp-pi-anchored-standard` extension (`anchored-tools`) for **omp** 
 
 The extension reproduces the turn-0 scaffold the model was trained against (DeepSeek Harness `minimal` preset) as three independent, all-opt-in paths:
 
-1. **Config path** (`persona`): three system-prompt modes for target models - `"host"` (builtin, untouched), `"minimal"` (wholesale harness minimal prompt, full tools), `"mixin"` (pure minimal until promotion, then minimal persona + omp discipline via a surgical `# Personality` swap - conventions, tool policy, workflow, delivery, role template, yield protocol all survive). Default `"host"` never touches omp's system prompt.
+1. **Config path** (`persona`): three system-prompt modes for target models - `"builtin"` (untouched), `"minimal"` (wholesale harness minimal prompt, full tools), `"mixin"` (pure minimal until promotion, then minimal persona + omp discipline via a surgical `# Personality` swap - conventions, tool policy, workflow, delivery, role template, yield protocol all survive). Default `"builtin"` never touches omp's system prompt.
 2. **Command path** (`/anchor-builtin`, `/anchor-minimal`, `/anchor-tools-only`): the command arms the session and sends the upstream `ANCHOR_TEXT` ping-pong (via `sendUserMessage`); that turn runs with **zero tools** (under the minimal persona for the first two, under omp's original system prompt for `/anchor-tools-only` - the trigger is the tool state, not the persona), the model can only "pong", and the first response promotes the full catalog. `/anchor-builtin` then returns omp's builtin system prompt; `/anchor-minimal` keeps the minimal persona for the whole session. The task is typed after the pong and runs with full tools.
 3. **Subagent auto-switch** (v0.9.0): role-matched subagent sessions (the bundled implementation/mechanical agents `task`/`sonic`, or your own `.agents/<name>`, via `subagentRoles` - or every subagent via `subagentDefault: "minimal"`) run the minimal persona automatically at dispatch - no command, no ping-pong (subagents have no interactive turn). Timing follows `mixin`: the task-text turn runs pure minimal (the committed-path CoT instead of the vanilla `let me` + `wait` verification loop), and from promotion (the first durable tool call) the minimal persona + omp discipline (role template, yield protocol, output schema) are both active. The main session and the open-ended bundled agents (scout/designer/reviewer/security-reviewer/librarian) keep omp's builtin prompt.
 
-With `persona: "host"` (the default) and no command, the plugin is **vanilla omp** - no narrowing, no persona swap, no input rewriting.
+With `persona: "builtin"` (the default) and no command, the plugin is **vanilla omp** - no narrowing, no persona swap, no input rewriting.
 
 ## Why this fork exists
 
@@ -21,7 +21,7 @@ A community report claimed `deepseek-v4-flash-0731` "overfits" to DeepSeek Harne
 - A/B on `deepseek-v4-flash` (baseline: `let me` in 54.6% of 14,663 thinking messages): with the bootstrap-only persona fix, the anchored session produced `We need` reasoning **and** a proper structured `ask` tool call - the trajectory the standard preset aims at, without losing omp's conventions after turn 0.
 - "But wait" is not a deepseek fingerprint: cross-model (MiMo V2.5 Pro 11.8% vs deepseek 4.7% of messages) and rate-stable across the 0731 release.
 
-Bootstrap-only was the validated fix (S4: `We need` + structured `ask`, host prompt restored after promotion). The fork has since turned that finding into opt-in surface: `persona: "minimal"` / `"mixin"` for the config modes, `/anchor-*` for the interactive ping-pong, and `subagentRoles` for dispatch-time subagent routing - the default (`persona: "host"`) stays untouched omp.
+Bootstrap-only was the validated fix (S4: `We need` + structured `ask`, host prompt restored after promotion). The fork has since turned that finding into opt-in surface: `persona: "minimal"` / `"mixin"` for the config modes, `/anchor-*` for the interactive ping-pong, and `subagentRoles` for dispatch-time subagent routing - the default (`persona: "builtin"`) stays untouched omp.
 
 ## Divergence from upstream
 
@@ -31,10 +31,10 @@ Bootstrap-only was the validated fix (S4: `We need` + structured `ask`, host pro
 | --- | --- | --- |
 | Persona scope | Permanent replacement | **Bootstrap-only**: minimal persona on the first unpromoted request, host system prompt restored after promotion (the validated fix) |
 | Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **5 optional settings**: `models`, `persona`, `bootstrapMaxTokens`, `subagentRoles`, `subagentDefault`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin`, `/anchor-minimal` and `/anchor-tools-only` |
-| Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "host" \| "minimal" \| "mixin"`**, default **`"host"`** - "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
+| Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "builtin" \| "minimal" \| "mixin"`**, default **`"builtin"`** - "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
 | Default models | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - case-insensitive prefix globs, cross `/` (match `deepseek-v4-flash-0731`, `-free`, provider-qualified ids) |
 
-Both hosts (omp + pi) implement identical config semantics; pi's persona swap was also permanent upstream and is now bootstrap-only here.
+Both hosts (omp + pi) implement the three `persona` modes; subagent auto-switch is omp-only (pi has no `before_agent_start` session identity). pi's persona swap was also permanent upstream and is now mode-driven here.
 
 ### After the fork point (upstream `v0.4.2`)
 
@@ -52,7 +52,7 @@ All settings optional. Global `~/.omp/agent/config.yml` (or `<project>/.omp/conf
 anchoredTools:
     models: # optional - default ["deepseek-v4-flash*", "deepseek-v4-pro*"]
         - deepseek-v4-flash # glob; with "/" matches "provider/modelId" only, bare name matches both
-    persona: host # optional - "host" (default, builtin, never touches omp's system prompt) | "minimal" (wholesale harness-minimal swap for target models, full tools) | "mixin" (pure minimal until promotion, then minimal persona + omp discipline)
+    persona: builtin # optional - "builtin" (default, untouched omp system prompt) | "minimal" (wholesale harness-minimal swap for target models, full tools) | "mixin" (pure minimal until promotion, then minimal persona + omp discipline)
     bootstrapMaxTokens: 1024 # optional - first-request output cap (pi only; validated on omp, not applied)
     subagentRoles: [task, sonic] # optional - v0.9.0 auto-switch: agent name/id globs whose subagent sessions run the minimal persona (bundled task/sonic = implementation/mechanical work, or your own .agents/<name>; empty = disabled)
     subagentDefault: none # optional - "none" (default, unmatched subagents untouched) | "minimal" (every subagent runs the minimal persona)
@@ -66,7 +66,7 @@ pi (`~/.pi/agent/settings.json`, same semantics via trusted-project `.pi/setting
 {
 	"anchoredTools": {
 		"models": ["deepseek-v4-pro"],
-		"persona": "host",
+		"persona": "builtin",
 		"bootstrapMaxTokens": 1024,
 		"subagentRoles": ["task", "sonic"],
 		"subagentDefault": "none"
@@ -125,11 +125,11 @@ or add to `~/.pi/agent/settings.json` `packages` and `/reload`:
 
 ## Usage
 
-Three independent, opt-in ways to use the extension, in increasing ceremony. With the defaults (`persona: "host"`, empty `subagentRoles`, no command) the plugin is **vanilla omp** - nothing is narrowed, swapped, or rewritten.
+Three independent, opt-in ways to use the extension, in increasing ceremony. With the defaults (`persona: "builtin"`, empty `subagentRoles`, no command) the plugin is **vanilla omp** - nothing is narrowed, swapped, or rewritten.
 
 | Mode | Scope | Ceremony | Best for |
 | --- | --- | --- | --- |
-| **A - Config** (`persona: host` \| `minimal` \| `mixin`) | every request of target-model sessions, whole session tree | none (set once) | always-on minimal or mixin mode for DeepSeek Flash/Pro |
+| **A - Config** (`persona: builtin` \| `minimal` \| `mixin`) | every request of target-model sessions, whole session tree | none (set once) | always-on minimal or mixin mode for DeepSeek Flash/Pro |
 | **B - Commands** (`/anchor-builtin`, `/anchor-minimal`, `/anchor-tools-only`) | one session, interactive | one command + ping-pong turn | exploring the anchor effect, one-off sessions |
 | **C - Subagent auto-switch** (`subagentRoles` / `subagentDefault`) | subagent sessions only, at dispatch time | none (set once) | delegation-heavy workflows (implementation/mechanical subagents) |
 
@@ -153,7 +153,7 @@ omp plugin enable omp-dsv4-turn0-anchor
 
 | `persona` | Prompt behavior | Best for |
 | --- | --- | --- |
-| `host` | builtin - the complete omp system prompt, untouched (default) | vanilla omp |
+| `builtin` | the complete omp system prompt, untouched | vanilla omp (default) |
 | `minimal` | wholesale - MINIMAL_SYSTEM_PROMPT (the deepseek-harness minimal mode) replaces the builtin prompt for every target-model request, full tools | you want pure minimal mode on by default |
 | `mixin` | pure minimal until promotion (the first durable tool call or assistant message anchors the trajectory), then minimal persona + omp discipline - conventions, tool policy, workflow, delivery, role template, yield protocol survive via a surgical `# Personality` swap | maximum anchor on the first request, harness conventions for the long tail |
 
@@ -182,7 +182,7 @@ Walkthrough:
 2. Type `/anchor-builtin` (or the variant you want). The plugin sends the anchor ping-pong; the model responds "pong" with zero tools.
 3. Type the task. It runs with full tools (and, for `/anchor-builtin` + `/anchor-tools-only`, under omp's normal system prompt).
 
-`/anchor-tools-only` is the report-finding probe: zero tools, not the persona, is the trigger that suppresses the `let me` CoT on the anchor turn (probe session `01a00937`: clean ack, 0 `let me`; the task turn returns to the vanilla voice under the host persona). If the session is already promoted, the command is a no-op with a notice.
+`/anchor-tools-only` is the report-finding probe: zero tools, not the persona, is the trigger that suppresses the `let me` CoT on the anchor turn (probe session `01a00937`: clean ack, 0 `let me`; the task turn returns to the vanilla voice under the builtin prompt). If the session is already promoted, the command is a no-op with a notice.
 
 ### Mode C - subagent auto-switch (v0.9.0, dispatch-time)
 
@@ -256,7 +256,7 @@ npm test            # node --test (native TS)
 - omp's `setActiveTools` narrowing affects all transports, including in-band dialects (the dialect catalog is generated from active tools).
 - `persona: "minimal"` replaces the whole system prompt during bootstrap only; it is not a filter or a trim. Full minimal-mode users should use DeepSeek Harness directly.
 - Context compaction (`context-full` @ 350k) is untested against the promotion memo.
-- omp can drop `anchoredTools` from `~/.omp/agent/config.yml` when it rewrites the file itself (observed 2026-08-15: the block vanished after an omp config save, silently reverting `persona` to `host`). If anchoring stops applying, check the block; a project-level `<project>/.omp/config.yml` survives omp's global rewrites.
+- omp can drop `anchoredTools` from `~/.omp/agent/config.yml` when it rewrites the file itself (observed 2026-08-15: the block vanished after an omp config save, silently reverting `persona` to the `builtin` default). If anchoring stops applying, check the block; a project-level `<project>/.omp/config.yml` survives omp's global rewrites.
 - omp connects MCP servers asynchronously: a server mounting after the initial narrowing can leak its tools into the first request. The extension re-narrows at `before_agent_start`/`agent_start`/`turn_start`, covering mounts that land before request serialization; a server connecting mid-request is a residual gap (pi is unaffected - it filters the payload directly).
 - Upstream drift is intentional: task routing (upstream `v0.4.x`) is not ported. If you want task-aware routing, use upstream - but expect the config surface and permanent-persona behavior that this fork removes.
 
