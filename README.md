@@ -30,7 +30,7 @@ Bootstrap-only was the validated fix (S4: `We need` + structured `ask`, host pro
 | Change | Upstream | This fork |
 | --- | --- | --- |
 | Persona scope | Permanent replacement | **Bootstrap-only**: minimal persona on the first unpromoted request, host system prompt restored after promotion (the validated fix) |
-| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **5 optional settings**: `models`, `persona`, `bootstrapMaxTokens`, `subagentRoles`, `subagentDefault`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin`, `/anchor-minimal` and `/anchor-tools-only` |
+| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **6 optional settings**: `models`, `persona`, `personaScope`, `bootstrapMaxTokens`, `subagentRoles`, `subagentDefault`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin`, `/anchor-minimal` and `/anchor-tools-only` |
 | Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "host" \| "minimal"`**, default **`"host"`** - the swap is a whole-prompt *replacement*, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
 | Default models | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - case-insensitive prefix globs, cross `/` (match `deepseek-v4-flash-0731`, `-free`, provider-qualified ids) |
 
@@ -53,6 +53,7 @@ anchoredTools:
     models: # optional - default ["deepseek-v4-flash*", "deepseek-v4-pro*"]
         - deepseek-v4-flash # glob; with "/" matches "provider/modelId" only, bare name matches both
     persona: host # optional - "host" (default, never touches omp's system prompt) | "minimal" (pure whole-session swap for target models, full tools)
+    personaScope: block # optional - "block" (default, surgical: only the # Personality block is replaced, all harness discipline stays) | "whole" (wholesale minimal-prompt replacement, the benchmarked scenes 1-5 behavior)
     bootstrapMaxTokens: 1024 # optional - first-request output cap (pi only; validated on omp, not applied)
     subagentRoles: [task, sonic] # optional - v0.9.0 auto-switch: agent name/id globs whose subagent sessions run the minimal persona (bundled task/sonic = implementation/mechanical work, or your own .agents/<name>; empty = disabled)
     subagentDefault: none # optional - "none" (default, unmatched subagents untouched) | "minimal" (every subagent runs the minimal persona)
@@ -67,6 +68,7 @@ pi (`~/.pi/agent/settings.json`, same semantics via trusted-project `.pi/setting
 	"anchoredTools": {
 		"models": ["deepseek-v4-pro"],
 		"persona": "host",
+		"personaScope": "block",
 		"bootstrapMaxTokens": 1024,
 		"subagentRoles": ["task", "sonic"],
 		"subagentDefault": "none"
@@ -153,6 +155,8 @@ omp plugin enable omp-dsv4-turn0-anchor
 
 A pure whole-session swap: every target-model request runs under the DSH minimal persona with the **full tool catalog** - no anchor turn, no bootstrap narrowing. This is the measured scene-2 profile minus the zero-tool turn (validation doc §10: same quality, terse committed-path reasoning, ~2.9x smaller requests, ~1.5x fewer tokens).
 
+With `personaScope: "block"` (default) only the `# Personality` block of the assembled prompt is replaced - the harness conventions (ask-tool guidance, tool policy, workflow, delivery contract) stay intact; `personaScope: "whole"` reproduces the benchmarked wholesale replacement.
+
 1. Add the config block (see [Config](#config)), set `persona: minimal`.
 2. Restart omp (or `/reload` on pi).
 3. Start a session on a target model; the minimal persona is active from the first request.
@@ -181,6 +185,8 @@ Walkthrough:
 ### Mode C - subagent auto-switch (v0.9.0, dispatch-time)
 
 Role-matched subagent sessions run the minimal persona automatically at `before_agent_start` - no command, no ping-pong (subagents have no interactive turn). The main session and the open-ended bundled agents (scout/designer/reviewer/security-reviewer/librarian) keep omp's builtin prompt; scoped implementation/mechanical subagents (bundled `task`/`sonic`, or your own `.agents/<name>`) get the committed-path CoT instead of the vanilla `let me` + `wait` verification loop.
+
+The swap inserts the minimal persona block into the slot omp leaves empty for subagents (they build with `personality: "none"`, so they have no `# Personality` block at all) - the role template, yield protocol, IRC roster, and output schema stay untouched.
 
 Why: 565-transcript subagent baseline (validation doc §8) - unanchored subagents run the verification-loop CoT by default (3.14 `let me` + 0.54 `wait` per thinking block, 0 committed-path sessions), and scoped implementation work is exactly the minimal-persona cell (same quality, ~2.9x smaller requests).
 

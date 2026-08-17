@@ -60,6 +60,7 @@ import {
 	MINIMAL_SYSTEM_PROMPT,
 	modelMatches,
 	rewriteSystemPrompt,
+	rewriteSystemPromptBlock,
 	SessionPromotionMemo,
 	toolName,
 	type Config,
@@ -183,16 +184,21 @@ export default function (pi: ExtensionAPI) {
 		// minimal persona replaces the host system prompt for the first
 		// request only (co-equal trajectory anchor); the host prompt returns
 		// once the session promotes. Default `persona: "host"` never touches
-		// the host prompt.
+		// the host prompt. With `personaScope: "block"` (default) only the
+		// `# Personality` block is swapped - the harness discipline outside
+		// it survives.
 		if ((explicit || cfg.persona === "minimal") && !promoted) {
-			const sp = rewriteSystemPrompt(payload, MINIMAL_SYSTEM_PROMPT);
+			const sp =
+				cfg.personaScope === "whole"
+					? rewriteSystemPrompt(payload, MINIMAL_SYSTEM_PROMPT)
+					: rewriteSystemPromptBlock(payload, MINIMAL_SYSTEM_PROMPT);
 			if (sp.changed) {
 				payload = sp.payload as Record<string, unknown>;
 				changed = true;
 				if (sid && !spLogged.has(sid)) {
 					spLogged.add(sid);
 					console.log(
-						`[${EXT_NAME}] ${ctx.model!.provider}/${ctx.model!.id}: system prompt → DSH minimal persona`,
+						`[${EXT_NAME}] ${ctx.model!.provider}/${ctx.model!.id}: system prompt → DSH minimal persona (personaScope=${cfg.personaScope})`,
 					);
 				}
 			}

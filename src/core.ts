@@ -292,6 +292,55 @@ export function rewriteSystemPrompt(
 	};
 }
 
+/**
+ * Same shape detection as rewriteSystemPrompt, but applies the surgical
+ * persona-block swap (swapPersonaBlock) to the EXISTING system string
+ * instead of wholesale-replacing it: the harness discipline outside the
+ * persona block survives. Used by the pi host (before_provider_request has
+ * the assembled payload, unlike omp's before_agent_start which carries
+ * `event.systemPrompt`).
+ */
+export function rewriteSystemPromptBlock(
+	payload: unknown,
+	personaText: string,
+): SystemPromptRewrite {
+	if (typeof payload !== "object" || payload === null) {
+		return { changed: false, payload };
+	}
+	const p = payload as Record<string, unknown>;
+
+	if (typeof p.system === "string" && p.system.includes("\n§ ")) {
+		const next = swapPersonaBlock(p.system, personaText);
+		if (next === p.system) return { changed: false, payload };
+		return { changed: true, payload: { ...p, system: next } };
+	}
+
+	const messages = p.messages;
+	if (!Array.isArray(messages) || messages.length === 0) {
+		return { changed: false, payload };
+	}
+	const first = messages[0];
+	if (typeof first !== "object" || first === null) {
+		return { changed: false, payload };
+	}
+	const m = first as Record<string, unknown>;
+	if (m.role !== "system" && m.role !== "developer") {
+		return { changed: false, payload };
+	}
+	if (typeof m.content !== "string" || !m.content.includes("\n§ ")) {
+		return { changed: false, payload };
+	}
+	const next = swapPersonaBlock(m.content, personaText);
+	if (next === m.content) return { changed: false, payload };
+	return {
+		changed: true,
+		payload: {
+			...p,
+			messages: [{ ...m, content: next }, ...messages.slice(1)],
+		},
+	};
+}
+
 /** Wire field names a provider payload may carry for the output budget. */
 const MAX_TOKENS_FIELDS = ["max_tokens", "max_completion_tokens"] as const;
 
@@ -394,6 +443,16 @@ export interface Config {
 	persona: PersonaMode;
 	bootstrapMaxTokens: number;
 	/**
+	 * How the minimal persona is applied: "block" (default) surgically
+	 * replaces only the `# Personality` block of the assembled system prompt,
+	 * keeping every other section (conventions, engineering discipline, tool
+	 * policy, workflow, delivery; for subagents also the role template, yield
+	 * protocol, IRC roster, output schema). "whole" replaces the entire
+	 * system prompt with MINIMAL_SYSTEM_PROMPT (the benchmarked scenes 1-5
+	 * behavior).
+	 */
+	personaScope: "block" | "whole";
+	/**
 	 * Agent name/id patterns (matchGlob semantics) that get the minimal
 	 * persona when dispatched as subagents (v0.9.0 auto-switch). Empty =
 	 * auto-switch disabled; subagents stay on their own system prompt.
@@ -427,6 +486,7 @@ export interface RawConfig {
 	models?: string[];
 	persona?: unknown;
 	bootstrapMaxTokens?: number;
+	personaScope?: unknown;
 	subagentRoles?: unknown;
 	subagentDefault?: unknown;
 }
@@ -435,6 +495,7 @@ export const DEFAULTS: Config = {
 	models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 	persona: "host",
 	bootstrapMaxTokens: 1024,
+	personaScope: "block",
 	subagentRoles: [],
 	subagentDefault: "none",
 };
@@ -472,7 +533,56 @@ export function applyDefaults(raw: RawConfig): Config {
 			: DEFAULTS.subagentRoles,
 		subagentDefault:
 			raw.subagentDefault === "minimal" ? "minimal" : DEFAULTS.subagentDefault,
+		personaScope:
+			raw.personaScope === "whole" ? "whole" : DEFAULTS.personaScope,
 	};
+}
+
+export const PERSONA_BLOCK_HEADING = "# Personality";
+
+/**
+ * Surgically replace the persona block in an assembled omp system prompt.
+ *
+ * The persona block spans from the `# Personality` heading (rendered from
+ * personalities/default.md: the `# Tone`, `# Reasoning Format`,
+ * `# Succinct Patterns`, `# Escalation` sections) to the next top-level
+ * `§ `-prefixed section - the persona block never contains a `§ ` marker, so
+ * `\n§ ` is a reliable end anchor.
+ *
+ * When no persona block exists the block is INSERTED before the first
+ * `§ ` section instead. That is the subagent case: omp builds subagent
+ * prompts with `personality: "none"` (sdk.ts), so their system prompt has no
+ * `# Personality` block at all - inserting one leaves the role template,
+ * yield protocol, IRC roster, and output schema untouched.
+ *
+ * Everything outside the block - harness conventions, engineering
+ * discipline, tool policy, workflow, delivery, the role template - is
+ * byte-identical in the result.
+ */
+export function swapPersonaBlock(prompt: string, personaText: string): string {
+	const start = prompt.indexOf(PERSONA_BLOCK_HEADING);
+	if (start < 0) {
+		// No persona block (subagent, personality:none): insert after the
+		// # Engineering section, before the next § section (the template
+		// slot the `{{#if personality}}` block would occupy). The first
+		// § section is "§ Role" - never insert before it.
+		const eng = prompt.indexOf("# Engineering");
+		const searchFrom = eng >= 0 ? eng : 0;
+		const insertAt = prompt.indexOf("\n§ ", searchFrom);
+		if (insertAt < 0) return prompt;
+		return (
+			prompt.slice(0, insertAt) +
+			`\n${PERSONA_BLOCK_HEADING}\n${personaText}\n` +
+			prompt.slice(insertAt)
+		);
+	}
+	const end = prompt.indexOf("\n§ ", start);
+	const regionEnd = end < 0 ? prompt.length : end;
+	return (
+		prompt.slice(0, start) +
+		`${PERSONA_BLOCK_HEADING}\n${personaText}\n` +
+		prompt.slice(regionEnd)
+	);
 }
 
 /**

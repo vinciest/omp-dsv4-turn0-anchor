@@ -21,6 +21,8 @@ import {
 	shouldRestoreFullCatalog,
 	shouldSwapMinimal,
 	shouldSwapSubagent,
+	swapPersonaBlock,
+	rewriteSystemPromptBlock,
 	toolName,
 } from "../src/core.ts";
 
@@ -507,6 +509,7 @@ describe("applyDefaults", () => {
 		models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 		persona: "host",
 		bootstrapMaxTokens: 1024,
+		personaScope: "block",
 		subagentRoles: [],
 		subagentDefault: "none",
 	};
@@ -534,9 +537,15 @@ describe("applyDefaults", () => {
 			models: ["a"],
 			persona: "minimal",
 			bootstrapMaxTokens: 4096,
+			personaScope: "block",
 			subagentRoles: [],
 			subagentDefault: "none",
 		});
+	});
+	test("personaScope parses with whole accepted, other values normalized", () => {
+		assert.equal(applyDefaults({ personaScope: "whole" }).personaScope, "whole");
+		assert.equal(applyDefaults({ personaScope: "partial" } as never).personaScope, "block");
+		assert.equal(applyDefaults({}).personaScope, "block");
 	});
 	test("subagent roles parse and filter", () => {
 		const cfg = applyDefaults({
@@ -614,6 +623,89 @@ describe("shouldSwapSubagent", () => {
 	test("empty role list and none default disables the feature", () => {
 		assert.equal(shouldSwapSubagent("task", applyDefaults({})), false);
 		assert.equal(shouldSwapSubagent("scout", applyDefaults({})), false);
+	});
+});
+
+const MINI_BUILTIN = [
+	"<system-conventions>RFC 2119</system-conventions>",
+	"§ Role\nHelpful assistant.",
+	"# Engineering\n- Correctness first.",
+	"# Personality\nEvidence-first terse engineer: every sentence fact.\n\n# Tone\n- Fragments when clearer.\n\n# Reasoning Format\nProblem. Decision. Check. Next.\n\n# Succinct Patterns\n- Y -> update X.\n\n# Escalation\nPush back on plans.",
+	"§ Runtime\n# Skills & Rules\n- beads",
+	"# Tool Policy\nUse tools when they help.",
+	"# Workflow\n1. Scope.\n2. Verify.",
+	"# Delivery\nNever yield early.",
+	"<critical>Finish work.</critical>",
+].join("\n");
+
+describe("swapPersonaBlock", () => {
+	const MINIMAL = "You are a helpful software engineer assistant.";
+
+	test("replaces the persona block and keeps everything else byte-identical", () => {
+		const out = swapPersonaBlock(MINI_BUILTIN, MINIMAL);
+		assert.ok(out.includes("# Personality\n" + MINIMAL));
+		assert.ok(!out.includes("Evidence-first terse engineer"));
+		assert.ok(!out.includes("# Tone"));
+		assert.ok(out.includes("# Engineering\n- Correctness first."));
+		assert.ok(out.includes("§ Runtime\n# Skills & Rules\n- beads"));
+		assert.ok(out.includes("# Tool Policy\nUse tools when they help."));
+		assert.ok(out.includes("# Delivery\nNever yield early."));
+		assert.ok(out.endsWith("<critical>Finish work.</critical>"));
+	});
+
+	test("inserts the persona block when absent (subagent personality:none)", () => {
+		const subagent = MINI_BUILTIN.replace(/\n# Personality[\s\S]*?\n§ Runtime/, "\n§ Runtime");
+		assert.ok(!subagent.includes("# Personality"));
+		const out = swapPersonaBlock(subagent, MINIMAL);
+		assert.ok(out.includes("# Personality\n" + MINIMAL + "\n\n§ Runtime"));
+		assert.ok(out.includes("# Engineering\n- Correctness first."));
+		assert.ok(out.includes("# Tool Policy\nUse tools when they help."));
+	});
+
+	test("replace and insert both keep the engineering-discipline prefix", () => {
+		const replaced = swapPersonaBlock(MINI_BUILTIN, MINIMAL);
+		const inserted = swapPersonaBlock(
+			MINI_BUILTIN.replace(/\n# Personality[\s\S]*?\n§ Runtime/, "\n§ Runtime"),
+			MINIMAL,
+		);
+		assert.ok(replaced.includes("# Engineering\n- Correctness first."));
+		assert.ok(inserted.includes("# Engineering\n- Correctness first."));
+		assert.ok(replaced.includes("# Personality\n" + MINIMAL));
+		assert.ok(inserted.includes("# Personality\n" + MINIMAL));
+	});
+
+	test("no usable markers returns the prompt unchanged", () => {
+		assert.equal(swapPersonaBlock("bare text", MINIMAL), "bare text");
+		assert.equal(swapPersonaBlock("no § marker here", MINIMAL), "no § marker here");
+	});
+});
+
+describe("rewriteSystemPromptBlock", () => {
+	const MINIMAL = "You are a helpful software engineer assistant.";
+
+	test("edits the system field in place", () => {
+		const payload = { system: MINI_BUILTIN, max_tokens: 1024 };
+		const out = rewriteSystemPromptBlock(payload, MINIMAL);
+		assert.equal(out.changed, true);
+		const sys = (out.payload as { system: string }).system;
+		assert.ok(sys.includes("# Personality\n" + MINIMAL));
+		assert.ok(sys.includes("# Tool Policy"));
+	});
+
+	test("edits the first system message in place", () => {
+		const payload = { messages: [{ role: "system", content: MINI_BUILTIN }, { role: "user", content: "hi" }] };
+		const out = rewriteSystemPromptBlock(payload, MINIMAL);
+		assert.equal(out.changed, true);
+		const content = (out.payload as { messages: { content: string }[] }).messages[0]!.content;
+		assert.ok(content.includes("# Personality\n" + MINIMAL));
+		assert.ok(content.includes("# Tool Policy"));
+	});
+
+	test("non-system-prompt payloads are untouched", () => {
+		const payload = { messages: [{ role: "user", content: "hi" }] };
+		assert.equal(rewriteSystemPromptBlock(payload, MINIMAL).changed, false);
+		assert.equal(rewriteSystemPromptBlock({}, MINIMAL).changed, false);
+		assert.equal(rewriteSystemPromptBlock(null, MINIMAL).changed, false);
 	});
 });
 

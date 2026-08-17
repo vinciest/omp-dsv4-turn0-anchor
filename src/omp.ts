@@ -83,6 +83,7 @@ import {
 	shouldRestoreFullCatalog,
 	shouldSwapMinimal,
 	shouldSwapSubagent,
+	swapPersonaBlock,
 	AnchorMode,
 	type Config,
 	type RawConfig,
@@ -347,6 +348,14 @@ export default function (pi: ExtensionAPI) {
 		//    task text then runs the committed-path CoT instead of the
 		//    vanilla let-me+wait loop;
 		//  - otherwise (host persona, unarmed): omp's builtin prompt.
+		//
+		// Application: with personaScope "block" (default) ONLY the persona
+		// block is swapped - the assembled prompt (event.systemPrompt) is
+		// edited in place, so the harness conventions, engineering
+		// discipline, tool policy, workflow, delivery, and (for subagents)
+		// the role template + yield protocol + output schema all stay.
+		// personaScope "whole" keeps the benchmarked scenes 1-5 behavior
+		// (wholesale MINIMAL_SYSTEM_PROMPT replacement).
 		const persist = !!sid && persistMinimal.has(sid);
 		if (
 			!shouldSwapMinimal({
@@ -364,7 +373,18 @@ export default function (pi: ExtensionAPI) {
 				`[${EXT_NAME}] subagent auto-switch: ${subagentId} -> minimal persona (subagentDefault=${cfg.subagentDefault})`,
 			);
 		}
-		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
+		if (cfg.personaScope === "whole") {
+			return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
+		}
+		const assembled = event.systemPrompt?.join("\n");
+		if (!assembled || !assembled.includes("\n§ ")) {
+			// No assembled prompt or unexpected shape: fall back to the
+			// wholesale swap rather than emitting a mangled prompt. (A
+			// missing `# Personality` is NOT a failure - subagents have none
+			// and swapPersonaBlock inserts the block in that case.)
+			return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
+		}
+		return { systemPrompt: [swapPersonaBlock(assembled, MINIMAL_SYSTEM_PROMPT)] };
 	});
 
 	// MCP tools may mount after before_agent_start (async connect). Re-narrow
@@ -510,6 +530,7 @@ export default function (pi: ExtensionAPI) {
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
 				`persona: ${cfg.persona === "minimal" ? "minimal (pure whole-session swap, full tools)" : "host (untouched)"}`,
+				`persona scope: ${cfg.personaScope === "whole" ? "whole (wholesale minimal swap)" : "block (surgical # Personality swap, discipline kept)"}`,
 				`subagent auto-switch: roles=[${cfg.subagentRoles.join(", ") || "none"}] default=${cfg.subagentDefault}`,
 				`minimal armed (next request): ${sid && armed.has(sid) ? (toolsOnly.has(sid) ? "yes (tools-only)" : "yes") : "no"}`,
 				`minimal persists (session): ${sid && persistMinimal.has(sid) ? "yes" : "no"}`,
