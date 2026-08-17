@@ -341,21 +341,18 @@ export default function (pi: ExtensionAPI) {
 		//    omp's original prompt for /anchor-tools-only (zero tools, not
 		//    the persona, is the no-let-me trigger);
 		//  - /anchor-minimal: minimal for the whole session (persistMinimal);
-		//  - config path (persona: "minimal"): pure whole-session swap for
-		//    target models - full tools, no anchor turn;
-		//  - subagent auto-switch (v0.9.0): minimal for role-matched
-		//    subagents (implementation/mechanical, e.g. task/sonic), their
-		//    task text then runs the committed-path CoT instead of the
-		//    vanilla let-me+wait loop;
-		//  - otherwise (host persona, unarmed): omp's builtin prompt.
-		//
-		// Application: with personaScope "block" (default) ONLY the persona
-		// block is swapped - the assembled prompt (event.systemPrompt) is
-		// edited in place, so the harness conventions, engineering
-		// discipline, tool policy, workflow, delivery, and (for subagents)
-		// the role template + yield protocol + output schema all stay.
-		// personaScope "whole" keeps the benchmarked scenes 1-5 behavior
-		// (wholesale MINIMAL_SYSTEM_PROMPT replacement).
+		//  - config path (`persona`) - three modes for target models:
+		//      "host"   builtin (untouched)
+		//      "minimal" whole: MINIMAL_SYSTEM_PROMPT replaces the builtin
+		//               prompt, full tools, no anchor turn;
+		//      "mixin"  minimal until promotion (pure harness prompt anchors
+		//               the trajectory), then minimal persona + omp
+		//               discipline (swapPersonaBlock) - conventions, tool
+		//               policy, workflow, delivery, role template survive;
+		//  - subagent auto-switch (v0.9.0): role-matched subagents follow
+		//    the same timing (minimal on the task-text turn, discipline from
+		//    promotion) so the yield protocol + output schema arrive with
+		//    the tool loop; their task text runs the committed-path CoT.
 		const persist = !!sid && persistMinimal.has(sid);
 		if (
 			!shouldSwapMinimal({
@@ -373,9 +370,29 @@ export default function (pi: ExtensionAPI) {
 				`[${EXT_NAME}] subagent auto-switch: ${subagentId} -> minimal persona (subagentDefault=${cfg.subagentDefault})`,
 			);
 		}
-		if (cfg.personaScope === "whole") {
+		// Whole (pure minimal) vs block (minimal persona + discipline):
+		// "minimal" mode and the pre-promotion anchor window of "mixin"
+		// (and of the subagent auto-switch) are whole; the post-promotion
+		// mixin/subagent window is the surgical block swap.
+		const promoted = memoizedIsPromoted(promotionMemo, sid, () =>
+			ctx.sessionManager.getBranch(),
+		);
+		const mixinWindow = (cfg.persona === "mixin" || subSwap) && !promoted;
+		// Whole (pure minimal) applies to: "minimal" mode, the pre-promotion
+		// mixin/subagent window, the explicit anchor turns (/anchor-builtin,
+		// /anchor-minimal) and the persistMinimal session. The post-promotion
+		// mixin/subagent window is the surgical block swap (minimal persona
+		// + omp discipline).
+		const whole =
+			cfg.persona === "minimal" ||
+			mixinWindow ||
+			persist ||
+			anchorMode === "minimal" ||
+			anchorMode === "builtin";
+		if (whole) {
 			return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
 		}
+		// Post-promotion mixin / subagent: minimal persona + omp discipline.
 		const assembled = event.systemPrompt?.join("\n");
 		if (!assembled || !assembled.includes("\n§ ")) {
 			// No assembled prompt or unexpected shape: fall back to the
@@ -529,8 +546,7 @@ export default function (pi: ExtensionAPI) {
 				`target models: ${cfg.models.join(", ") || "(none — no model is anchored)"}`,
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
-				`persona: ${cfg.persona === "minimal" ? "minimal (pure whole-session swap, full tools)" : "host (untouched)"}`,
-				`persona scope: ${cfg.personaScope === "whole" ? "whole (wholesale minimal swap)" : "block (surgical # Personality swap, discipline kept)"}`,
+				`persona: ${cfg.persona === "minimal" ? "minimal (whole swap: harness minimal prompt replaces the builtin, full tools)" : cfg.persona === "mixin" ? "mixin (minimal until promotion, then minimal persona + omp discipline)" : "host (builtin, untouched)"}`,
 				`subagent auto-switch: roles=[${cfg.subagentRoles.join(", ") || "none"}] default=${cfg.subagentDefault}`,
 				`minimal armed (next request): ${sid && armed.has(sid) ? (toolsOnly.has(sid) ? "yes (tools-only)" : "yes") : "no"}`,
 				`minimal persists (session): ${sid && persistMinimal.has(sid) ? "yes" : "no"}`,

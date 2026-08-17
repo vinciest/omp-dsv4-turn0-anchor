@@ -393,10 +393,10 @@ export const BOOTSTRAP_TOOLS: string[] = ["bash", "read"];
  * The replacement is wholesale, not a filter, and "minimal" names a mode of
  * the DeepSeek Harness, not of this extension — hence the explicit opt-in.
  */
-export type PersonaMode = "host" | "minimal";
+export type PersonaMode = "host" | "minimal" | "mixin";
 
 export function isPersonaMode(value: unknown): value is PersonaMode {
-	return value === "host" || value === "minimal";
+	return value === "host" || value === "minimal" || value === "mixin";
 }
 
 /** Anchor-turn persona mode for the /anchor-* commands. */
@@ -425,14 +425,21 @@ export interface SwapDecision {
  *    for the no-let-me CoT);
  *  - `/anchor-minimal` keeps the minimal persona for the whole session
  *    (persistMinimal);
- *  - the config path (`persona: "minimal"`) is a pure whole-session swap for
- *    target-model sessions - full tools from request 1, no anchor turn, no
- *    narrowing (the measured scene-2 profile minus the zero-tool turn);
+ *  - the config path has three modes (`persona`):
+ *      - "host": builtin - the complete omp system prompt, untouched;
+ *      - "minimal": whole - every swap yields MINIMAL_SYSTEM_PROMPT (the
+ *        deepseek-harness minimal mode) replacing the builtin prompt, full
+ *        tools from request 1 (the measured scene-2 profile);
+ *      - "mixin": minimal until promotion (the first durable tool call or
+ *        assistant message - the trajectory anchor runs pure minimal), then
+ *        minimal persona + omp discipline (swapPersonaBlock: conventions,
+ *        tool policy, workflow, delivery, role template, yield protocol);
  *  - otherwise the host system prompt is untouched.
  */
 export function shouldSwapMinimal(d: SwapDecision): boolean {
 	if (d.anchorMode === "minimal" || d.anchorMode === "builtin") return true;
 	if (d.persistMinimal) return true;
+	if (d.persona === "mixin" && d.isTarget) return true;
 	if (d.persona === "minimal" && d.isTarget) return true;
 	return false;
 }
@@ -442,16 +449,6 @@ export interface Config {
 	models: string[];
 	persona: PersonaMode;
 	bootstrapMaxTokens: number;
-	/**
-	 * How the minimal persona is applied: "block" (default) surgically
-	 * replaces only the `# Personality` block of the assembled system prompt,
-	 * keeping every other section (conventions, engineering discipline, tool
-	 * policy, workflow, delivery; for subagents also the role template, yield
-	 * protocol, IRC roster, output schema). "whole" replaces the entire
-	 * system prompt with MINIMAL_SYSTEM_PROMPT (the benchmarked scenes 1-5
-	 * behavior).
-	 */
-	personaScope: "block" | "whole";
 	/**
 	 * Agent name/id patterns (matchGlob semantics) that get the minimal
 	 * persona when dispatched as subagents (v0.9.0 auto-switch). Empty =
@@ -486,7 +483,6 @@ export interface RawConfig {
 	models?: string[];
 	persona?: unknown;
 	bootstrapMaxTokens?: number;
-	personaScope?: unknown;
 	subagentRoles?: unknown;
 	subagentDefault?: unknown;
 }
@@ -495,7 +491,6 @@ export const DEFAULTS: Config = {
 	models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 	persona: "host",
 	bootstrapMaxTokens: 1024,
-	personaScope: "block",
 	subagentRoles: [],
 	subagentDefault: "none",
 };
@@ -533,8 +528,6 @@ export function applyDefaults(raw: RawConfig): Config {
 			: DEFAULTS.subagentRoles,
 		subagentDefault:
 			raw.subagentDefault === "minimal" ? "minimal" : DEFAULTS.subagentDefault,
-		personaScope:
-			raw.personaScope === "whole" ? "whole" : DEFAULTS.personaScope,
 	};
 }
 

@@ -509,7 +509,6 @@ describe("applyDefaults", () => {
 		models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 		persona: "host",
 		bootstrapMaxTokens: 1024,
-		personaScope: "block",
 		subagentRoles: [],
 		subagentDefault: "none",
 	};
@@ -537,15 +536,15 @@ describe("applyDefaults", () => {
 			models: ["a"],
 			persona: "minimal",
 			bootstrapMaxTokens: 4096,
-			personaScope: "block",
 			subagentRoles: [],
 			subagentDefault: "none",
 		});
 	});
-	test("personaScope parses with whole accepted, other values normalized", () => {
-		assert.equal(applyDefaults({ personaScope: "whole" }).personaScope, "whole");
-		assert.equal(applyDefaults({ personaScope: "partial" } as never).personaScope, "block");
-		assert.equal(applyDefaults({}).personaScope, "block");
+	test("persona parses the three modes, other values normalize to host", () => {
+		assert.equal(applyDefaults({ persona: "host" }).persona, "host");
+		assert.equal(applyDefaults({ persona: "minimal" }).persona, "minimal");
+		assert.equal(applyDefaults({ persona: "mixin" }).persona, "mixin");
+		assert.equal(applyDefaults({ persona: "maximal" } as never).persona, "host");
 	});
 	test("subagent roles parse and filter", () => {
 		const cfg = applyDefaults({
@@ -867,6 +866,16 @@ describe("shouldSwapMinimal", () => {
 		assert.equal(shouldSwapMinimal(base), false);
 		assert.equal(
 			shouldSwapMinimal({ ...base, isTarget: false }),
+			false,
+		);
+	});
+	test("mixin swaps for target models only", () => {
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "mixin" }),
+			true,
+		);
+		assert.equal(
+			shouldSwapMinimal({ ...base, persona: "mixin", isTarget: false }),
 			false,
 		);
 	});
