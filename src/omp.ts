@@ -287,8 +287,10 @@ export default function (pi: ExtensionAPI) {
 		const cfg = loadConfig(ctx, logger);
 		const sid = ctx.sessionManager.getSessionId();
 		// Subagent identity (v0.9.0 auto-switch): role-routed minimal swap
-		// for impl/fix-style subagents while main/plan/design/review keep
-		// their own (builtin) prompt. Subagents cannot run slash commands and
+		// for implementation/mechanical subagents (bundled task/sonic, or
+		// user .agents/<name>) while the main session and the open-ended
+		// bundled agents (scout/designer/reviewer/librarian) keep their own
+		// (builtin) prompt. Subagents cannot run slash commands and
 		// have no interactive turn, so the armed/ping-pong machinery never
 		// applies to them; the swap is decided purely from the agent id.
 		const subagentId = subagentIdFromSession(ctx.sessionManager.getSessionFile());
@@ -341,8 +343,9 @@ export default function (pi: ExtensionAPI) {
 		//  - config path (persona: "minimal"): pure whole-session swap for
 		//    target models - full tools, no anchor turn;
 		//  - subagent auto-switch (v0.9.0): minimal for role-matched
-		//    subagents (impl/fix-style), their task text then runs the
-		//    committed-path CoT instead of the vanilla let-me+wait loop;
+		//    subagents (implementation/mechanical, e.g. task/sonic), their
+		//    task text then runs the committed-path CoT instead of the
+		//    vanilla let-me+wait loop;
 		//  - otherwise (host persona, unarmed): omp's builtin prompt.
 		const persist = !!sid && persistMinimal.has(sid);
 		if (

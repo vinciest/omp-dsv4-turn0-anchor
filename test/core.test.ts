@@ -540,10 +540,10 @@ describe("applyDefaults", () => {
 	});
 	test("subagent roles parse and filter", () => {
 		const cfg = applyDefaults({
-			subagentRoles: ["impl-fix", "fixer", "", 42, "  "],
+			subagentRoles: ["task", "sonic", "", 42, "  "],
 			subagentDefault: "minimal",
 		} as never);
-		assert.deepStrictEqual(cfg.subagentRoles, ["impl-fix", "fixer"]);
+		assert.deepStrictEqual(cfg.subagentRoles, ["task", "sonic"]);
 		assert.equal(cfg.subagentDefault, "minimal");
 	});
 	test("invalid subagentDefault normalizes to none", () => {
@@ -579,27 +579,27 @@ describe("applyDefaults", () => {
 describe("shouldSwapSubagent", () => {
 	const cfg = (over: Partial<import("../src/core.ts").Config> = {}) =>
 		applyDefaults({
-			subagentRoles: ["impl-fix", "fixer", "scout", "*impl*", "fix*"],
+			subagentRoles: ["task", "sonic", "scout", "*task*", "sonic*"],
 			subagentDefault: "none",
 			...over,
 		} as never);
 
 	test("exact agent-name match", () => {
-		assert.equal(shouldSwapSubagent("impl-fix", cfg()), true);
-		assert.equal(shouldSwapSubagent("fixer", cfg()), true);
+		assert.equal(shouldSwapSubagent("task", cfg()), true);
+		assert.equal(shouldSwapSubagent("sonic", cfg()), true);
 		assert.equal(shouldSwapSubagent("scout", cfg()), true);
 		assert.equal(shouldSwapSubagent("designer", cfg()), false);
 		assert.equal(shouldSwapSubagent("BoilingBadger", cfg()), false);
 	});
 	test("glob wildcards", () => {
-		assert.equal(shouldSwapSubagent("impl-fix", cfg()), true); // exact
-		assert.equal(shouldSwapSubagent("deep-impl-helper", cfg()), true); // *impl*
-		assert.equal(shouldSwapSubagent("fixer-bot", cfg()), true); // fix*
-		assert.equal(shouldSwapSubagent("unfixable", cfg()), false); // fix* is anchored
+		assert.equal(shouldSwapSubagent("task", cfg()), true); // exact
+		assert.equal(shouldSwapSubagent("deep-task-helper", cfg()), true); // *task*
+		assert.equal(shouldSwapSubagent("sonic-bot", cfg()), true); // sonic*
+		assert.equal(shouldSwapSubagent("unsonic", cfg()), false); // sonic* is anchored
 	});
 	test("case-insensitive", () => {
-		assert.equal(shouldSwapSubagent("IMPL-FIX", cfg()), true);
-		assert.equal(shouldSwapSubagent("Fixer", cfg()), true);
+		assert.equal(shouldSwapSubagent("TASK", cfg()), true);
+		assert.equal(shouldSwapSubagent("Sonic", cfg()), true);
 	});
 	test("default fallback when no role matches", () => {
 		assert.equal(
@@ -607,12 +607,12 @@ describe("shouldSwapSubagent", () => {
 			true,
 		);
 		assert.equal(
-			shouldSwapSubagent("impl-fix", cfg({ subagentDefault: "minimal" })),
+			shouldSwapSubagent("task", cfg({ subagentDefault: "minimal" })),
 			true,
 		);
 	});
 	test("empty role list and none default disables the feature", () => {
-		assert.equal(shouldSwapSubagent("impl-fix", applyDefaults({})), false);
+		assert.equal(shouldSwapSubagent("task", applyDefaults({})), false);
 		assert.equal(shouldSwapSubagent("scout", applyDefaults({})), false);
 	});
 });
