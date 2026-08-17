@@ -8,6 +8,7 @@ The extension anchors a session's **first request** to the same turn-0 scaffold 
 
 1. **Config path** (`persona: "minimal"`): a pure whole-session swap - every target-model request runs under the DSH minimal persona with the full tool catalog (no anchor turn, no narrowing). Default `persona: "host"` never touches omp's system prompt.
 2. **Command path** (`/anchor-builtin`, `/anchor-minimal`, `/anchor-tools-only`): the command arms the session and sends the upstream `ANCHOR_TEXT` ping-pong (via `sendUserMessage`); that turn runs with **zero tools** (under the minimal persona for the first two, under omp's original system prompt for `/anchor-tools-only` - the trigger is the tool state, not the persona), the model can only "pong", and the first response promotes the full catalog. `/anchor-builtin` then returns omp's builtin system prompt; `/anchor-minimal` keeps the minimal persona for the whole session. The task is typed after the pong and runs with full tools.
+3. **Subagent auto-switch** (v0.9.0): role-matched subagent sessions (impl/fix-style agents via `subagentRoles`, or every subagent via `subagentDefault: "minimal"`) run the minimal persona automatically at dispatch - no command, no ping-pong (subagents have no interactive turn). Main/plan/design/review agents keep omp's builtin prompt; scoped impl/fix subagents get the committed-path CoT instead of the vanilla `let me` + `wait` verification loop.
 
 With `persona: "host"` (the default) and no command, the plugin is **vanilla omp** - no narrowing, no persona swap, no input rewriting.
 
@@ -29,7 +30,7 @@ Bootstrap-only is the fix, not a compromise: minimal persona on the first unprom
 | Change | Upstream | This fork |
 | --- | --- | --- |
 | Persona scope | Permanent replacement | **Bootstrap-only**: minimal persona on the first unpromoted request, host system prompt restored after promotion (the validated fix) |
-| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **3 optional settings**: `models`, `persona`, `bootstrapMaxTokens`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin`, `/anchor-minimal` and `/anchor-tools-only` |
+| Config surface | 9 settings (`enabled`, `bootstrapTools`, `bootstrapMode`, `promoteOn`, `anchorText`, `notify`, `minimalSystemPrompt`, `models`, `bootstrapMaxTokens`) | **5 optional settings**: `models`, `persona`, `bootstrapMaxTokens`, `subagentRoles`, `subagentDefault`. Bootstrap tools fixed to `bash`+`read`; promotion fixed to `either`; the zero-tool `ANCHOR_TEXT` ping-pong anchor is available per-session via `/anchor-builtin`, `/anchor-minimal` and `/anchor-tools-only` |
 | Setting name | `minimalSystemPrompt` (implied trimming) | **`persona: "host" \| "minimal"`**, default **`"host"`** - the swap is a whole-prompt *replacement*, and "minimal" is a mode of the DeepSeek Harness, not of this extension. Default is no replacement (omp-first: if you want full minimal mode, use dsh directly) |
 | Default models | `["deepseek-v4-pro"]` | `["deepseek-v4-flash*", "deepseek-v4-pro*"]` - case-insensitive prefix globs, cross `/` (match `deepseek-v4-flash-0731`, `-free`, provider-qualified ids) |
 
@@ -53,6 +54,8 @@ anchoredTools:
         - deepseek-v4-flash # glob; with "/" matches "provider/modelId" only, bare name matches both
     persona: host # optional - "host" (default, never touches omp's system prompt) | "minimal" (pure whole-session swap for target models, full tools)
     bootstrapMaxTokens: 1024 # optional - first-request output cap (pi only; validated on omp, not applied)
+    subagentRoles: [impl-fix, fixer] # optional - v0.9.0 auto-switch: agent name/id globs whose subagent sessions run the minimal persona (e.g. impl/fix-style agents; empty = disabled)
+    subagentDefault: none # optional - "none" (default, unmatched subagents untouched) | "minimal" (every subagent runs the minimal persona)
 ```
 
 `models: []` explicitly disables anchoring. Restart omp after changes.
@@ -65,6 +68,8 @@ pi (`~/.pi/agent/settings.json`, same semantics via trusted-project `.pi/setting
 		"models": ["deepseek-v4-pro"],
 		"persona": "host",
 		"bootstrapMaxTokens": 1024,
+		"subagentRoles": ["impl-fix"],
+		"subagentDefault": "none"
 	}
 }
 ```

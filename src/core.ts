@@ -393,6 +393,17 @@ export interface Config {
 	models: string[];
 	persona: PersonaMode;
 	bootstrapMaxTokens: number;
+	/**
+	 * Agent name/id patterns (matchGlob semantics) that get the minimal
+	 * persona when dispatched as subagents (v0.9.0 auto-switch). Empty =
+	 * auto-switch disabled; subagents stay on their own system prompt.
+	 */
+	subagentRoles: string[];
+	/**
+	 * Fallback for subagents matching no `subagentRoles` pattern: "minimal"
+	 * swaps every unmatched subagent, "none" leaves them vanilla.
+	 */
+	subagentDefault: "none" | "minimal";
 }
 
 /**
@@ -416,12 +427,16 @@ export interface RawConfig {
 	models?: string[];
 	persona?: unknown;
 	bootstrapMaxTokens?: number;
+	subagentRoles?: unknown;
+	subagentDefault?: unknown;
 }
 
 export const DEFAULTS: Config = {
 	models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 	persona: "host",
 	bootstrapMaxTokens: 1024,
+	subagentRoles: [],
+	subagentDefault: "none",
 };
 
 /**
@@ -450,5 +465,23 @@ export function applyDefaults(raw: RawConfig): Config {
 		bootstrapMaxTokens: isPositiveInt(raw.bootstrapMaxTokens)
 			? raw.bootstrapMaxTokens
 			: DEFAULTS.bootstrapMaxTokens,
+		subagentRoles: Array.isArray(raw.subagentRoles)
+			? raw.subagentRoles.filter(
+					(p): p is string => typeof p === "string" && p.trim().length > 0,
+				)
+			: DEFAULTS.subagentRoles,
+		subagentDefault:
+			raw.subagentDefault === "minimal" ? "minimal" : DEFAULTS.subagentDefault,
 	};
+}
+
+/**
+ * Whether a subagent with this agent id gets the minimal persona. Role match
+ * (matchGlob patterns) wins; unmatched subagents fall back to
+ * `subagentDefault`. With an empty role list and "none" default the feature
+ * is off.
+ */
+export function shouldSwapSubagent(agentId: string, cfg: Config): boolean {
+	if (cfg.subagentRoles.some((p) => matchGlob(p, agentId))) return true;
+	return cfg.subagentDefault === "minimal";
 }

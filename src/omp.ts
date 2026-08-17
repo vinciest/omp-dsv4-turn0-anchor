@@ -60,7 +60,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	getAgentDir,
 	type ExtensionAPI,
@@ -82,6 +82,7 @@ import {
 	SessionPromotionMemo,
 	shouldRestoreFullCatalog,
 	shouldSwapMinimal,
+	shouldSwapSubagent,
 	AnchorMode,
 	type Config,
 	type RawConfig,
@@ -172,6 +173,27 @@ export default function (pi: ExtensionAPI) {
 		model: { id: string; provider: string } | undefined,
 		cfg: Config,
 	): boolean => !!model && modelMatches(model.id, model.provider, cfg.models);
+
+	/**
+	 * Subagent agentId when the current session is a subagent, else undefined.
+	 * Subagent transcripts live at `<parent>/<agentId>.jsonl` (omp
+	 * session-manager.ts: "a child writes `<parent>/<agentId>.jsonl`"), so the
+	 * structural test is "the containing directory is itself a session's
+	 * artifacts dir" - a `<dir>.jsonl` sibling exists (the same walk
+	 * `resolveBreadcrumbToInteractiveRoot` uses). Named agents (`.agents/`,
+	 * bundled scout/designer/...) give `agentId` = the agent name; anonymous
+	 * task dispatches give the generated `<Adjective><Animal>` id. Main
+	 * sessions never sit inside a sibling session's artifacts dir.
+	 */
+	const subagentIdFromSession = (
+		sessionFile: string | undefined,
+	): string | undefined => {
+		if (!sessionFile || !sessionFile.endsWith(".jsonl")) return undefined;
+		const dir = dirname(sessionFile);
+		if (!existsSync(`${dir}.jsonl`)) return undefined;
+		const base = sessionFile.slice(dir.length + 1, -".jsonl".length);
+		return base.length > 0 ? base : undefined;
+	};
 
 	/** One-time promotion notice for a session we actually anchored. */
 	const maybeNotifyPromoted = (
@@ -264,6 +286,14 @@ export default function (pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event, ctx) => {
 		const cfg = loadConfig(ctx, logger);
 		const sid = ctx.sessionManager.getSessionId();
+		// Subagent identity (v0.9.0 auto-switch): role-routed minimal swap
+		// for impl/fix-style subagents while main/plan/design/review keep
+		// their own (builtin) prompt. Subagents cannot run slash commands and
+		// have no interactive turn, so the armed/ping-pong machinery never
+		// applies to them; the swap is decided purely from the agent id.
+		const subagentId = subagentIdFromSession(ctx.sessionManager.getSessionFile());
+		const subSwap =
+			subagentId !== undefined && shouldSwapSubagent(subagentId, cfg);
 		// Explicit `/anchor-*` arm (the ping-pong turn the command triggers);
 		// consumed one-shot here.
 		const explicit = !!sid && armed.has(sid);
@@ -278,7 +308,8 @@ export default function (pi: ExtensionAPI) {
 		if (explicit && sid) toolsOnly.delete(sid);
 		logger.debug(
 			`[${EXT_NAME}] before_agent_start sid=${sid ?? "none"} anchorMode=${anchorMode ?? "none"} ` +
-				`persona=${cfg.persona} target=${isTarget(ctx.model, cfg)} armedSize=${armed.size}`,
+				`subagent=${subagentId ?? "-"} subSwap=${subSwap} persona=${cfg.persona} ` +
+				`target=${isTarget(ctx.model, cfg)} armedSize=${armed.size}`,
 		);
 
 		if (explicit) {
@@ -309,6 +340,9 @@ export default function (pi: ExtensionAPI) {
 		//  - /anchor-minimal: minimal for the whole session (persistMinimal);
 		//  - config path (persona: "minimal"): pure whole-session swap for
 		//    target models - full tools, no anchor turn;
+		//  - subagent auto-switch (v0.9.0): minimal for role-matched
+		//    subagents (impl/fix-style), their task text then runs the
+		//    committed-path CoT instead of the vanilla let-me+wait loop;
 		//  - otherwise (host persona, unarmed): omp's builtin prompt.
 		const persist = !!sid && persistMinimal.has(sid);
 		if (
@@ -317,9 +351,15 @@ export default function (pi: ExtensionAPI) {
 				persistMinimal: persist,
 				persona: cfg.persona,
 				isTarget: isTarget(ctx.model, cfg),
-			})
+			}) &&
+			!subSwap
 		) {
 			return;
+		}
+		if (subSwap) {
+			logger.info(
+				`[${EXT_NAME}] subagent auto-switch: ${subagentId} -> minimal persona (subagentDefault=${cfg.subagentDefault})`,
+			);
 		}
 		return { systemPrompt: [MINIMAL_SYSTEM_PROMPT] };
 	});
@@ -467,6 +507,7 @@ export default function (pi: ExtensionAPI) {
 				`bootstrap tools: ${BOOTSTRAP_TOOLS.join(", ")}`,
 				`bootstrap max tokens: ${cfg.bootstrapMaxTokens} (pi only)`,
 				`persona: ${cfg.persona === "minimal" ? "minimal (pure whole-session swap, full tools)" : "host (untouched)"}`,
+				`subagent auto-switch: roles=[${cfg.subagentRoles.join(", ") || "none"}] default=${cfg.subagentDefault}`,
 				`minimal armed (next request): ${sid && armed.has(sid) ? (toolsOnly.has(sid) ? "yes (tools-only)" : "yes") : "no"}`,
 				`minimal persists (session): ${sid && persistMinimal.has(sid) ? "yes" : "no"}`,
 				`current model: ${model ? `${model.provider}/${model.id}` : "n/a"}`,

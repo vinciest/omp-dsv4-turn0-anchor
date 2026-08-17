@@ -20,6 +20,7 @@ import {
 	DEFAULTS,
 	shouldRestoreFullCatalog,
 	shouldSwapMinimal,
+	shouldSwapSubagent,
 	toolName,
 } from "../src/core.ts";
 
@@ -506,6 +507,8 @@ describe("applyDefaults", () => {
 		models: ["deepseek-v4-flash*", "deepseek-v4-pro*"],
 		persona: "host",
 		bootstrapMaxTokens: 1024,
+		subagentRoles: [],
+		subagentDefault: "none",
 	};
 
 	test("empty raw config resolves to DEFAULTS", () => {
@@ -531,7 +534,23 @@ describe("applyDefaults", () => {
 			models: ["a"],
 			persona: "minimal",
 			bootstrapMaxTokens: 4096,
+			subagentRoles: [],
+			subagentDefault: "none",
 		});
+	});
+	test("subagent roles parse and filter", () => {
+		const cfg = applyDefaults({
+			subagentRoles: ["impl-fix", "fixer", "", 42, "  "],
+			subagentDefault: "minimal",
+		} as never);
+		assert.deepStrictEqual(cfg.subagentRoles, ["impl-fix", "fixer"]);
+		assert.equal(cfg.subagentDefault, "minimal");
+	});
+	test("invalid subagentDefault normalizes to none", () => {
+		assert.equal(
+			applyDefaults({ subagentDefault: "always" } as never).subagentDefault,
+			"none",
+		);
 	});
 	test("invalid persona normalizes to host", () => {
 		assert.equal(applyDefaults({ persona: "maximal" }).persona, "host");
@@ -554,6 +573,47 @@ describe("applyDefaults", () => {
 				.bootstrapMaxTokens,
 			1024,
 		);
+	});
+});
+
+describe("shouldSwapSubagent", () => {
+	const cfg = (over: Partial<import("../src/core.ts").Config> = {}) =>
+		applyDefaults({
+			subagentRoles: ["impl-fix", "fixer", "scout", "*impl*", "fix*"],
+			subagentDefault: "none",
+			...over,
+		} as never);
+
+	test("exact agent-name match", () => {
+		assert.equal(shouldSwapSubagent("impl-fix", cfg()), true);
+		assert.equal(shouldSwapSubagent("fixer", cfg()), true);
+		assert.equal(shouldSwapSubagent("scout", cfg()), true);
+		assert.equal(shouldSwapSubagent("designer", cfg()), false);
+		assert.equal(shouldSwapSubagent("BoilingBadger", cfg()), false);
+	});
+	test("glob wildcards", () => {
+		assert.equal(shouldSwapSubagent("impl-fix", cfg()), true); // exact
+		assert.equal(shouldSwapSubagent("deep-impl-helper", cfg()), true); // *impl*
+		assert.equal(shouldSwapSubagent("fixer-bot", cfg()), true); // fix*
+		assert.equal(shouldSwapSubagent("unfixable", cfg()), false); // fix* is anchored
+	});
+	test("case-insensitive", () => {
+		assert.equal(shouldSwapSubagent("IMPL-FIX", cfg()), true);
+		assert.equal(shouldSwapSubagent("Fixer", cfg()), true);
+	});
+	test("default fallback when no role matches", () => {
+		assert.equal(
+			shouldSwapSubagent("BoilingBadger", cfg({ subagentDefault: "minimal" })),
+			true,
+		);
+		assert.equal(
+			shouldSwapSubagent("impl-fix", cfg({ subagentDefault: "minimal" })),
+			true,
+		);
+	});
+	test("empty role list and none default disables the feature", () => {
+		assert.equal(shouldSwapSubagent("impl-fix", applyDefaults({})), false);
+		assert.equal(shouldSwapSubagent("scout", applyDefaults({})), false);
 	});
 });
 
