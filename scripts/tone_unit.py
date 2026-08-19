@@ -45,8 +45,15 @@ Endpoint: OpenAI-compatible /v1/chat/completions (the arh proxy plane binds
 --api-key / ARH_API_KEY - a routing token). Offline classifier check with
 --classify '<text>' (no network).
 
-Usage:
-  python3 scripts/tone_unit.py --persona minimal
+Voice axis note: the `we` / `let me` signal lives in the model's reasoning
+block (this probe's `--classify` and per-turn texts read the reasoning
+block = the thinking axis). On long tool-loop runs the reasoning block can
+drop mid-session and the terse text preambles flip to the habitual `let me`
+fill-in - that is terminal-reasoning text, not a persona regression (session
+01a0199a: thinking 0 let-me vs text 97 let-me). See session_voice_scan.py
+for the dual thinking/text aggregate split.
+
+Usage:  python3 scripts/tone_unit.py --persona minimal
   python3 scripts/tone_unit.py --persona host --system-file /tmp/host-prompt.txt
   python3 scripts/tone_unit.py --persona minimal --two-turn --tools minimal
   python3 scripts/tone_unit.py --classify 'We need answer to user'

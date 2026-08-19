@@ -75,6 +75,22 @@ def assistant_steps(path: Path) -> list:
     return steps
 
 
+def phrase_verdict(counts: dict) -> str:
+    """Classify a block-kind's voice from its marker counts - the dual metric.
+
+    Thinking blocks carry the persona signal: `we`/`we_need` = committed-path,
+    `let_me` = verification loop. Text blocks are the terminal-reasoning
+    artifact (tool-loop preambles habitually use the `let me` fill-in once the
+    deep-reasoning block drops - the 01a0199a observation), so their verdict is
+    reported separately as mainly-diagnostic, not persona signal.
+    """
+    if counts["let_me"] > 0 and counts["let_me"] >= counts["we"]:
+        return "let-me"
+    if counts["we"] > 0:
+        return "we"
+    return "neutral"
+
+
 def analyze(path: Path) -> dict:
     steps = assistant_steps(path)
     per_think, per_text = [], []
@@ -97,12 +113,17 @@ def analyze(path: Path) -> dict:
         "file": str(path),
         "assistant_messages": len(steps),
         "last_thinking_step": transition if transition is not None else None,
+        "dual_metric": {
+            # Persona-quality lives in thinking; text is the tool-loop
+            # terminal-reasoning voice (reported distinctly, not conflated).
+            "thinking_verdict": phrase_verdict(agg["thinking"]),
+            "text_verdict": phrase_verdict(agg["text"]),
+        },
         "aggregate": {
             "thinking": agg["thinking"],
             "text": agg["text"],
             "total": {k: agg["thinking"][k] + agg["text"][k] for k in agg["thinking"]},
         },
-        "letting_step_index": per_text,
         "per_think": per_think,
         "per_text": per_text,
     }
@@ -141,9 +162,11 @@ def main():
 
     for r in results:
         ag = r["aggregate"]["total"]
+        dm = r["dual_metric"]
         print(f"{r['file']}")
         print(f"  assistant messages: {r['assistant_messages']}  "
               f"(thinking blocks present through step {r['last_thinking_step']})")
+        print(f"  dual verdict: thinking={dm['thinking_verdict']} / text={dm['text_verdict']}")
         print("  total voice: "
               + "  ".join(f"{k}={ag[k]}" for k in ("we_need", "we", "lets", "let_me", "wait")))
         th, tx = r["aggregate"]["thinking"], r["aggregate"]["text"]

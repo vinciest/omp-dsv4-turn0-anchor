@@ -1,2 +1,5 @@
 node_modules/
 __pycache__/
+
+# Benchmark agent output (session 01a0199a inspecting the black-hole webpage the agent produced)
+benchmark/
